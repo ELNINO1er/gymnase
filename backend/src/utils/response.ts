@@ -1,0 +1,22 @@
+import { Response } from "express";
+
+export function success(res: Response, data: unknown, statusCode = 200) {
+  res.status(statusCode).json({ success: true, data });
+}
+
+export function error(res: Response, message: string, statusCode = 400) {
+  res.status(statusCode).json({ success: false, error: message });
+}
+
+export function paginated(res: Response, data: unknown[], total: number, page: number, limit: number) {
+  res.status(200).json({
+    success: true,
+    data,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
+}

@@ -1,109 +1,233 @@
-# Elite Gym App
+# Elite Gym — Application de gestion de salle de sport
 
-Application de demonstration React + Vite pour une salle de gym.
+Application full-stack pour la gestion complete d'une salle de sport : membres, abonnements, reservations, paiements et administration.
 
-## Lancer la demo
+## Architecture
 
-1. Ouvrez un terminal dans ce dossier :
-   `c:\Users\ACER\Downloads\gym-app`
-2. Installez les dependances si ce n'est pas deja fait :
-   `npm install`
-3. Lancez la demo :
-   `npm run dev`
-4. Ouvrez le lien client affiche dans le terminal, souvent :
-   `http://127.0.0.1:5173`
+```
+gym-app/
+├── src/                 ← Frontend React + Vite + TypeScript + Tailwind
+├── backend/             ← API Node.js + Express + TypeScript
+├── database/            ← Migrations SQL (MySQL)
+└── docs/                ← Documentation technique
+```
 
-Sur Windows, si `npm run dev` est bloque par PowerShell, utilisez :
-`npm.cmd run dev`
+## Tech Stack
 
-## Codes de demonstration
+| Couche | Technologies |
+|--------|-------------|
+| Frontend | React 18, Vite, TypeScript, Tailwind CSS, React Router, Axios |
+| Backend | Node.js, Express, TypeScript, JWT, bcrypt, Zod |
+| Base de donnees | MySQL 8 |
+| Securite | Helmet, CORS, Rate Limiting, Input Sanitization |
 
-- Espace membre : `ELITE2024`
-- Espace admin : `ADMIN2024`
+## Prerequis
 
-## Liens separes
+- Node.js v18+
+- MySQL (WAMP, MAMP, ou serveur distant)
 
-- Lien client a mettre dans le QR code :
-  `http://127.0.0.1:5173`
-- Lien admin prive, a ne pas mettre dans le QR code client :
-  `http://127.0.0.1:5173/#/admin`
+## Installation
 
-Le client ne voit pas le bouton admin sur sa page. Pour ouvrir l'admin, il faut connaitre le lien admin et le code admin.
+### 1. Cloner le projet
 
-## Base client locale
+```bash
+git clone <url-du-repo>
+cd gym-app
+```
 
-Chaque client est garde dans une petite base locale du navigateur apres son inscription ou son identification visiteur.
+### 2. Installer les dependances
 
-Le client peut revenir plus tard avec :
+```bash
+# Frontend
+npm install
 
-- son code client, par exemple `MBR...` ou `VIS...`
-- son email
-- son telephone
+# Backend
+cd backend && npm install
+```
 
-Depuis la page client, cliquez sur `Retrouver mon dossier`, entrez une de ces informations, puis ouvrez l'espace client retrouve.
+### 3. Configurer la base de donnees
 
-Important : cette base est locale au navigateur. Pour une vraie application utilisee par plusieurs telephones ou ordinateurs, il faudra ensuite ajouter une vraie base de donnees en ligne.
+Creer la base MySQL :
 
-## Paiement Wave
+```sql
+CREATE DATABASE IF NOT EXISTS gym_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
 
-Apres une reservation, le client voit un bouton `Payer avec Wave`.
+### 4. Configurer l'environnement
 
-Dans cette demo, le bouton ouvre un lien Wave configure dans `src/App.tsx` avec la constante `WAVE_PAYMENT_LINK`.
+```bash
+# Backend
+cp backend/.env.example backend/.env
+# Modifier les valeurs si necessaire (DB_USER, DB_PASSWORD, JWT_SECRET)
 
-Pour utiliser un vrai compte marchand, remplacez :
+# Frontend (optionnel)
+cp .env.example .env
+```
 
-`https://pay.wave.com/m/elite-gym-demo`
+### 5. Executer les migrations et le seed
 
-par votre vrai lien marchand Wave Business ou par un lien genere par l'API Wave Checkout.
+```bash
+cd backend
+npm run migrate   # Cree les tables
+npm run seed      # Insere les donnees de demo
+```
 
-Quand le client clique sur le bouton, la transaction passe en `Paiement Wave lance`. L'admin peut ensuite verifier le paiement dans Wave et marquer la transaction comme `Paye`.
+### 6. Demarrer l'application
 
-## Ce que l'admin peut faire
+```bash
+# Terminal 1 — Backend (port 3001)
+cd backend
+npm run dev
 
-- Voir les inscrits et visiteurs identifies
-- Voir toutes les seances programmees
-- Voir les transactions
-- Marquer une transaction comme payee, en attente ou annulee
-- Annuler une seance programmee
-- Faire le point d'une journee precise sans melanger les seances et l'argent des autres jours
-- Recevoir une notification dans l'espace admin quand une nouvelle seance est programmee
+# Terminal 2 — Frontend (port 5173)
+npm run dev
+```
 
-Les donnees sont stockees dans le navigateur avec `localStorage`. C'est parfait pour une demo locale, mais pas encore pour une vraie application en production.
+### 7. Ouvrir dans le navigateur
 
-## Tester les notifications admin
+- Frontend : http://localhost:5173
+- API Health : http://localhost:3001/api/health
 
-1. Ouvrez le lien admin dans un onglet :
-   `http://127.0.0.1:5173/#/admin`
-2. Connectez-vous avec `ADMIN2024`
-3. Ouvrez le lien client dans un autre onglet :
-   `http://127.0.0.1:5173`
-4. Programmez une seance cote client.
-5. Retournez sur l'onglet admin : une notification apparaitra en haut du tableau de bord.
+## Comptes de demonstration
 
-## Commandes utiles
+| Role | Identifiant | Mot de passe |
+|------|-------------|--------------|
+| Admin | admin@elitegym.com | admin123 |
+| Membre | moussa@test.com | test123 |
 
-- `npm.cmd run dev` : lance le serveur de developpement
-- `npm.cmd run build` : verifie et compile l'application
-- `npm.cmd run preview` : previsualise la version compilee
+## Fonctionnalites
 
-## Passer en vraie application vendable
+### Visiteur (public)
+- Consulter les tarifs et types de seances
+- S'inscrire (inscription en attente de validation)
+- Se connecter
 
-Cette version est une demo locale. Pour vendre l'application a une vraie salle de sport, il faut la connecter a une base de donnees en ligne, securiser l'espace admin et brancher un vrai paiement Wave.
+### Membre
+- Voir son abonnement (plan, expiration, jours restants)
+- Reserver des seances (verification places disponibles)
+- Consulter l'historique des reservations et paiements
+- Modifier son profil et mot de passe
 
-Les fichiers ajoutes pour preparer cette evolution :
+### Administrateur
+- Dashboard avec stats en temps reel (revenus, membres, reservations)
+- Valider/suspendre/reactiver des membres
+- Gerer les reservations (confirmer, marquer absent, annuler)
+- Gerer les paiements (valider, annuler, rembourser)
+- Creer/modifier les plans d'abonnement
+- Envoyer des notifications (ciblees ou broadcast)
 
-- `.env.example` : modele des variables de configuration.
-- `docs/PLAN_VERSION_VENDABLE.md` : plan simple pour passer de la demo a la version pro.
-- `docs/supabase-schema.sql` : schema de base de donnees conseille pour Supabase.
-- `docs/CHECKLIST_LANCEMENT.md` : liste de verification avant de vendre.
+## API Reference
 
-Ordre conseille :
+### Authentification
+```
+POST   /api/auth/register        Inscription
+POST   /api/auth/login           Connexion (retourne JWT)
+GET    /api/auth/me              Profil connecte
+PUT    /api/auth/password        Changer mot de passe
+PUT    /api/auth/profile         Modifier profil
+POST   /api/auth/refresh         Renouveler token
+```
 
-1. Creer un projet Supabase.
-2. Executer `docs/supabase-schema.sql` dans Supabase.
-3. Copier `.env.example` vers `.env`.
-4. Ajouter les vraies valeurs Supabase dans `.env`.
-5. Remplacer progressivement `localStorage` par Supabase.
-6. Ajouter la vraie connexion admin.
-7. Connecter le vrai paiement Wave.
-8. Deployer l'application en ligne.
+### Utilisateurs (Admin)
+```
+GET    /api/users                Liste paginee + filtres
+GET    /api/users/:id            Detail complet
+POST   /api/users                Creer un utilisateur
+PUT    /api/users/:id            Modifier
+DELETE /api/users/:id            Supprimer (soft)
+PUT    /api/users/:id/validate   Valider inscription
+PUT    /api/users/:id/suspend    Suspendre
+PUT    /api/users/:id/reactivate Reactiver
+GET    /api/users/search         Recherche rapide
+GET    /api/users/stats          Statistiques
+```
+
+### Plans
+```
+GET    /api/plans                Liste (public)
+POST   /api/plans                Creer (admin)
+PUT    /api/plans/:id            Modifier (admin)
+DELETE /api/plans/:id            Desactiver (admin)
+```
+
+### Abonnements
+```
+GET    /api/subscriptions              Liste (admin)
+GET    /api/subscriptions/user/:id     Abonnements d'un membre
+POST   /api/subscriptions              Creer
+PUT    /api/subscriptions/:id/activate Activer
+PUT    /api/subscriptions/:id/cancel   Annuler
+PUT    /api/subscriptions/:id/renew    Renouveler
+GET    /api/subscriptions/expired      Detecter expires
+```
+
+### Reservations
+```
+GET    /api/reservations/sessions       Types de seances (public)
+GET    /api/reservations/available-slots Creneaux disponibles
+POST   /api/reservations                Reserver
+GET    /api/reservations/user/:id       Mes reservations
+PUT    /api/reservations/:id/cancel     Annuler
+PUT    /api/reservations/:id/complete   Terminer (admin)
+PUT    /api/reservations/:id/no-show    Absent (admin)
+GET    /api/reservations                Liste (admin)
+GET    /api/reservations/today          Aujourd'hui (admin)
+```
+
+### Paiements
+```
+GET    /api/payments              Liste (admin)
+GET    /api/payments/user/:id     Paiements d'un membre
+POST   /api/payments              Creer (admin)
+PUT    /api/payments/:id/validate Valider
+PUT    /api/payments/:id/cancel   Annuler
+PUT    /api/payments/:id/refund   Rembourser
+GET    /api/payments/stats/daily  Revenus du jour
+GET    /api/payments/stats/monthly Revenus du mois
+```
+
+### Dashboard (Admin)
+```
+GET    /api/dashboard/summary            Vue globale
+GET    /api/dashboard/revenue/daily      Revenus journaliers
+GET    /api/dashboard/revenue/monthly    Revenus mensuels
+GET    /api/dashboard/reservations/today Reservations du jour
+GET    /api/dashboard/members/stats      Stats membres
+```
+
+### Notifications
+```
+GET    /api/notifications          Mes notifications
+PUT    /api/notifications/:id/read Marquer lue
+PUT    /api/notifications/read-all Tout lire
+POST   /api/notifications          Envoyer (admin)
+DELETE /api/notifications/:id      Supprimer
+```
+
+## Deploiement
+
+### Frontend
+- Vercel : `npx vercel` depuis la racine
+- Netlify : Build command `npm run build`, publish dir `dist`
+
+### Backend
+- Railway : connecter le repo, root directory `backend`
+- Render : Node.js, build `npm install && npm run build`, start `npm start`
+
+### Base de donnees
+- PlanetScale (MySQL serverless)
+- Railway MySQL
+- DigitalOcean Managed Database
+
+## Securite implementee
+
+- Mots de passe hashes (bcrypt 12 rounds)
+- Authentification JWT avec expiration
+- Rate limiting (login: 20 req/15min, API: 200 req/min)
+- Validation Zod sur tous les inputs
+- Protection XSS (sanitization des inputs)
+- Helmet (headers de securite)
+- CORS configure par environnement
+- Soft delete (pas de suppression physique)
+- Verification d'abonnement avant reservation
+- Verification de capacite avant reservation
