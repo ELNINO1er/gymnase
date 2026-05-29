@@ -1,7 +1,9 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { query } from "../config/database.js";
-import { success, error, paginated } from "../utils/response.js";
+import { success, error, paginated, ErrorCode } from "../utils/response.js";
+import { logActivity } from "../services/activityLog.js";
+import { getSettingNumber } from "../services/settings.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -131,7 +133,7 @@ export async function createReservation(req: Request, res: Response) {
     // 1. Verifier que le membre est actif
     const [user] = await query<any[]>("SELECT id, status, role FROM users WHERE id = ?", [userId]);
     if (!user || user.status !== "ACTIVE") {
-      error(res, "Votre compte doit etre actif pour reserver", 403);
+      error(res, "Votre compte doit etre actif pour reserver", 403, ErrorCode.FORBIDDEN);
       return;
     }
 
@@ -142,7 +144,7 @@ export async function createReservation(req: Request, res: Response) {
         [userId]
       );
       if (!activeSub) {
-        error(res, "Vous n'avez pas d'abonnement actif. Veuillez souscrire a un abonnement.", 403);
+        error(res, "Vous n'avez pas d'abonnement actif. Veuillez souscrire a un abonnement.", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
         return;
       }
     }
@@ -162,24 +164,33 @@ export async function createReservation(req: Request, res: Response) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (resDate < today) {
-      error(res, "Impossible de reserver une date passee");
+      error(res, "Impossible de reserver une date passee", 400, ErrorCode.PAST_DATE);
       return;
     }
 
-    // 5. Verifier que le creneau n'est pas plein
+    // 5. Determiner la capacite max (time_slot > session)
+    let maxCapacity = session.capacity;
+    if (time_slot_id) {
+      const [slot] = await query<any[]>("SELECT max_capacity FROM time_slots WHERE id = ? AND is_active = TRUE", [time_slot_id]);
+      if (slot && slot.max_capacity) maxCapacity = slot.max_capacity;
+    }
+
+    // 6. Compter les reservations confirmees pour ce creneau
     const [slotCount] = await query<any[]>(
-      `SELECT COUNT(*) as count FROM reservations
+      `SELECT COUNT(*) as booked FROM reservations
        WHERE session_id = ? AND reservation_date = ? AND start_time = ?
          AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
       [session_id, reservation_date, start_time]
     );
 
-    if (slotCount.count >= session.capacity) {
-      error(res, "Ce creneau est complet. Veuillez choisir un autre horaire.");
+    const placesRestantes = maxCapacity - slotCount.booked;
+
+    if (placesRestantes <= 0) {
+      error(res, `Ce creneau est complet (${maxCapacity}/${maxCapacity}). Veuillez choisir un autre horaire.`, 400, ErrorCode.SLOT_FULL);
       return;
     }
 
-    // 6. Verifier que le membre n'a pas deja reserve ce creneau
+    // 7. Verifier que le membre n'a pas deja reserve ce creneau
     const [duplicate] = await query<any[]>(
       `SELECT id FROM reservations
        WHERE user_id = ? AND reservation_date = ? AND start_time = ?
@@ -188,7 +199,7 @@ export async function createReservation(req: Request, res: Response) {
     );
 
     if (duplicate) {
-      error(res, "Vous avez deja une reservation a cet horaire.");
+      error(res, "Vous avez deja une reservation a cet horaire.", 400, ErrorCode.DUPLICATE_RESERVATION);
       return;
     }
 
@@ -260,14 +271,15 @@ export async function cancelReservation(req: Request, res: Response) {
       return;
     }
 
-    // Verifier delai d'annulation (2h avant pour les membres)
+    // Verifier delai d'annulation (configurable via settings)
     if (userRole === "MEMBER") {
+      const cancellationHours = await getSettingNumber("cancellation_hours", 2);
       const resDateTime = new Date(`${reservation.reservation_date.toISOString().split("T")[0]}T${reservation.start_time}`);
       const now = new Date();
       const hoursBeforeSession = (resDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-      if (hoursBeforeSession < 2) {
-        error(res, "Annulation impossible moins de 2 heures avant la seance");
+      if (hoursBeforeSession < cancellationHours) {
+        error(res, `Annulation impossible moins de ${cancellationHours} heures avant la seance`, 400, ErrorCode.CANCELLATION_TOO_LATE);
         return;
       }
     }

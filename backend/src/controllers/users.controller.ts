@@ -2,8 +2,9 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { query } from "../config/database.js";
-import { success, error, paginated } from "../utils/response.js";
+import { success, error, paginated, ErrorCode } from "../utils/response.js";
 import { generateMemberCode } from "../utils/token.js";
+import { logActivity } from "../services/activityLog.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -181,6 +182,8 @@ export async function createUser(req: Request, res: Response) {
       [full_name, email || null, phone, passwordHash, role, status, memberCode, sport_goal || null]
     );
 
+    await logActivity(req, { action: "CREATE", targetType: "USER", targetId: result.insertId, description: `Membre cree : ${full_name} (${role})` });
+
     success(res, {
       id: result.insertId,
       full_name,
@@ -189,10 +192,10 @@ export async function createUser(req: Request, res: Response) {
       role,
       status,
       member_code: memberCode,
-    }, 201);
+    }, 201, "Utilisateur cree");
   } catch (err) {
     console.error("[USERS] createUser error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -294,10 +297,12 @@ export async function deleteUser(req: Request, res: Response) {
       [id]
     );
 
+    await logActivity(req, { action: "DELETE", targetType: "USER", targetId: Number(id), description: `Membre supprime : #${id}` });
+
     success(res, { message: "Utilisateur supprime" });
   } catch (err) {
     console.error("[USERS] deleteUser error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -343,6 +348,8 @@ export async function validateUser(req: Request, res: Response) {
       [id]
     );
 
+    await logActivity(req, { action: "VALIDATE", targetType: "USER", targetId: Number(id), description: `Inscription validee : ${user.full_name}` });
+
     success(res, {
       message: `${user.full_name} est maintenant membre actif.`,
       user_id: user.id,
@@ -351,7 +358,7 @@ export async function validateUser(req: Request, res: Response) {
     });
   } catch (err) {
     console.error("[USERS] validateUser error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -376,10 +383,12 @@ export async function suspendUser(req: Request, res: Response) {
       [id]
     );
 
+    await logActivity(req, { action: "SUSPEND", targetType: "USER", targetId: Number(id), description: `Membre suspendu : ${users[0].full_name}` });
+
     success(res, { message: `${users[0].full_name} a ete suspendu.` });
   } catch (err) {
     console.error("[USERS] suspendUser error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -408,10 +417,12 @@ export async function reactivateUser(req: Request, res: Response) {
       [id]
     );
 
+    await logActivity(req, { action: "REACTIVATE", targetType: "USER", targetId: Number(id), description: `Membre reactive : ${users[0].full_name}` });
+
     success(res, { message: `${users[0].full_name} a ete reactive.` });
   } catch (err) {
     console.error("[USERS] reactivateUser error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 

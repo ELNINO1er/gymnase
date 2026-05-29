@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { query } from "../config/database.js";
-import { success, error, paginated } from "../utils/response.js";
+import { success, error, paginated, ErrorCode } from "../utils/response.js";
+import { logActivity } from "../services/activityLog.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -183,6 +184,8 @@ export async function validatePayment(req: Request, res: Response) {
       [payment.user_id, `Votre paiement de ${Number(payment.amount).toLocaleString()} FCFA a ete confirme.`]
     );
 
+    await logActivity(req, { action: "PAY", targetType: "PAYMENT", targetId: Number(id), description: `Paiement #${id} valide : ${payment.amount} FCFA pour ${payment.full_name}`, metadata: { amount: payment.amount, user_id: payment.user_id } });
+
     success(res, {
       message: `Paiement de ${payment.full_name} valide (${payment.amount} FCFA)`,
       payment_id: payment.id,
@@ -190,7 +193,7 @@ export async function validatePayment(req: Request, res: Response) {
     });
   } catch (err) {
     console.error("[PAYMENTS] validatePayment error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -223,10 +226,12 @@ export async function cancelPayment(req: Request, res: Response) {
       [payment.user_id]
     );
 
+    await logActivity(req, { action: "CANCEL", targetType: "PAYMENT", targetId: Number(id), description: `Paiement #${id} annule pour ${payment.full_name}` });
+
     success(res, { message: `Paiement annule` });
   } catch (err) {
     console.error("[PAYMENTS] cancelPayment error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -259,10 +264,12 @@ export async function refundPayment(req: Request, res: Response) {
       [payment.user_id, `Votre paiement de ${Number(payment.amount).toLocaleString()} FCFA a ete rembourse.`]
     );
 
+    await logActivity(req, { action: "REFUND", targetType: "PAYMENT", targetId: Number(id), description: `Paiement #${id} rembourse : ${payment.amount} FCFA pour ${payment.full_name}` });
+
     success(res, { message: `Paiement rembourse` });
   } catch (err) {
     console.error("[PAYMENTS] refundPayment error:", err);
-    error(res, "Erreur serveur", 500);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }
 

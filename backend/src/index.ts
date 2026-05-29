@@ -6,6 +6,7 @@ import { env } from "./config/env.js";
 import { testConnection } from "./config/database.js";
 import { sanitizeInputs } from "./middlewares/validate.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
+import { startCronJobs } from "./services/cronJobs.js";
 import routes from "./routes/index.js";
 
 const app = express();
@@ -52,7 +53,7 @@ app.use(errorHandler);
 
 // 404
 app.use((_req, res) => {
-  res.status(404).json({ error: "Route introuvable" });
+  res.status(404).json({ success: false, message: "Route introuvable", error: "NOT_FOUND" });
 });
 
 // Start server
@@ -63,6 +64,9 @@ async function start() {
     console.error(`[SERVER] Host: ${env.db.host}:${env.db.port}, DB: ${env.db.name}, User: ${env.db.user}`);
     process.exit(1);
   }
+
+  // Demarrer les taches automatiques (expiration abonnements)
+  startCronJobs();
 
   app.listen(env.port, () => {
     console.log(`

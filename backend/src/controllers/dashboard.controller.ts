@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { query } from "../config/database.js";
-import { success, error } from "../utils/response.js";
+import { success, error, ErrorCode } from "../utils/response.js";
 
 // ── GET /api/dashboard/summary — Vue globale admin ─────────────
 
@@ -209,5 +209,78 @@ export async function getMembersStats(req: Request, res: Response) {
   } catch (err) {
     console.error("[DASHBOARD] getMembersStats error:", err);
     error(res, "Erreur serveur", 500);
+  }
+}
+
+// ── GET /api/dashboard/alerts — Alertes intelligentes ──────────
+
+export async function getAlerts(req: Request, res: Response) {
+  try {
+    const alerts: { type: string; severity: "info" | "warning" | "danger"; title: string; message: string; count: number }[] = [];
+
+    // 1. Abonnements qui expirent dans 3 jours
+    const [expiring3d] = await query<any[]>(
+      `SELECT COUNT(*) as c FROM subscriptions WHERE status = 'ACTIVE' AND end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)`
+    );
+    if (expiring3d.c > 0) {
+      alerts.push({ type: "expiring_soon", severity: "warning", title: "Expirations proches", message: `${expiring3d.c} abonnement(s) expirent dans les 3 prochains jours`, count: expiring3d.c });
+    }
+
+    // 2. Paiements en attente > 48h
+    const [pendingOld] = await query<any[]>(
+      `SELECT COUNT(*) as c FROM payments WHERE status = 'PENDING' AND created_at < DATE_SUB(NOW(), INTERVAL 48 HOUR)`
+    );
+    if (pendingOld.c > 0) {
+      alerts.push({ type: "payment_overdue", severity: "danger", title: "Paiements en retard", message: `${pendingOld.c} paiement(s) en attente depuis plus de 48h`, count: pendingOld.c });
+    }
+
+    // 3. Inscriptions en attente
+    const [pendingUsers] = await query<any[]>("SELECT COUNT(*) as c FROM users WHERE status = 'PENDING'");
+    if (pendingUsers.c > 0) {
+      alerts.push({ type: "pending_users", severity: "info", title: "Inscriptions a valider", message: `${pendingUsers.c} inscription(s) en attente de validation`, count: pendingUsers.c });
+    }
+
+    // 4. Membres inactifs (pas de visite depuis 30 jours)
+    const [inactive] = await query<any[]>(
+      `SELECT COUNT(*) as c FROM users u
+       WHERE u.role = 'MEMBER' AND u.status = 'ACTIVE'
+         AND u.id NOT IN (
+           SELECT DISTINCT user_id FROM attendance_logs WHERE status = 'VALID' AND check_in_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+         )`
+    );
+    if (inactive.c > 0) {
+      alerts.push({ type: "inactive_members", severity: "warning", title: "Membres inactifs", message: `${inactive.c} membre(s) ne sont pas venus depuis 30 jours`, count: inactive.c });
+    }
+
+    // 5. Creneaux souvent complets (taux > 80% cette semaine)
+    const fullSlots = await query<any[]>(
+      `SELECT s.name, r.start_time, COUNT(*) as bookings, s.capacity,
+              ROUND(COUNT(*) / s.capacity * 100) as fill_rate
+       FROM reservations r
+       JOIN sessions s ON s.id = r.session_id
+       WHERE r.status NOT IN ('CANCELLED', 'NO_SHOW')
+         AND r.reservation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       GROUP BY s.name, r.start_time, s.capacity
+       HAVING fill_rate >= 80
+       ORDER BY fill_rate DESC
+       LIMIT 5`
+    );
+    if (fullSlots.length > 0) {
+      alerts.push({ type: "full_slots", severity: "info", title: "Creneaux populaires", message: `${fullSlots.length} creneau(x) a plus de 80% de capacite cette semaine`, count: fullSlots.length });
+    }
+
+    // 6. Frequentation actuelle
+    const [currentlyIn] = await query<any[]>(
+      `SELECT COUNT(*) as c FROM attendance_logs WHERE check_out_time IS NULL AND status = 'VALID' AND DATE(check_in_time) = CURDATE()`
+    );
+
+    success(res, {
+      alerts,
+      currently_in_gym: currentlyIn.c,
+      full_slots_detail: fullSlots,
+    });
+  } catch (err) {
+    console.error("[DASHBOARD] getAlerts error:", err);
+    error(res, "Erreur serveur", 500, ErrorCode.INTERNAL_ERROR);
   }
 }

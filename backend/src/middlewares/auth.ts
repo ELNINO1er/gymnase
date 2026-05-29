@@ -20,7 +20,7 @@ export function authGuard(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Token manquant ou invalide" });
+    res.status(401).json({ success: false, message: "Token manquant ou invalide", error: "TOKEN_MISSING" });
     return;
   }
 
@@ -31,19 +31,19 @@ export function authGuard(req: Request, res: Response, next: NextFunction) {
     req.user = decoded;
     next();
   } catch {
-    res.status(401).json({ error: "Token expire ou invalide" });
+    res.status(401).json({ success: false, message: "Token expire ou invalide", error: "TOKEN_EXPIRED" });
   }
 }
 
 export function roleGuard(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
-      res.status(401).json({ error: "Non authentifie" });
+      res.status(401).json({ success: false, message: "Non authentifie", error: "TOKEN_MISSING" });
       return;
     }
 
     if (!roles.includes(req.user.role)) {
-      res.status(403).json({ error: "Acces refuse : role insuffisant" });
+      res.status(403).json({ success: false, message: "Acces refuse : role insuffisant", error: "FORBIDDEN" });
       return;
     }
 

@@ -70,6 +70,15 @@ export const router = createBrowserRouter([
     ],
   },
 
+  // ── Mode Kiosque ──────────────────────────────────────────
+  {
+    path: "/kiosk",
+    lazy: async () => {
+      const { KioskPage } = await import("./pages/kiosk/KioskPage");
+      return { Component: KioskPage };
+    },
+  },
+
   // ── Fallback ─────────────────────────────────────────────
   { path: "*", element: <Navigate to="/" replace /> },
 ]);
