@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+.DS_Store
+
+# Local demo/runtime artifacts
+.chrome-video-profile*/
+*.log
+demo-client.png
+demo-generator-*.png
+elite-gym-demo-video*.webm

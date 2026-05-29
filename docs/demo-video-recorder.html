@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Elite Gym - Generateur video demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #08090b;
+        color: #f7f7f7;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+
+      main {
+        width: min(1100px, calc(100vw - 32px));
+      }
+
+      canvas {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        display: block;
+        background: #050608;
+        border: 1px solid #2d2d33;
+      }
+
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 14px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        background: #ffc21f;
+        color: #08090b;
+        cursor: pointer;
+        font: 700 15px/1 system-ui, sans-serif;
+        padding: 12px 16px;
+      }
+
+      p {
+        margin: 0;
+        color: #b9bbc6;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <canvas id="stage" width="1280" height="720"></canvas>
+      <div class="bar">
+        <p id="status">Pret a generer la video demo.</p>
+        <button id="record" autofocus>Generer la video</button>
+      </div>
+    </main>
+
+    <script>
+      const canvas = document.querySelector("#stage");
+      const ctx = canvas.getContext("2d");
+      const status = document.querySelector("#status");
+      const button = document.querySelector("#record");
+      const W = canvas.width;
+      const H = canvas.height;
+      const fps = 30;
+      const duration = 36;
+
+
+      const ease = (x) => 1 - Math.pow(1 - Math.min(Math.max(x, 0), 1), 3);
+      const fade = (time, start, end) => {
+        const inT = ease((time - start) / 0.65);
+        const outT = ease((end - time) / 0.65);
+        return Math.min(inT, outT, 1);
+      };
+
+      function roundRect(x, y, w, h, r) {
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+      }
+
+      function fillRound(x, y, w, h, r, color) {
+        ctx.fillStyle = color;
+        roundRect(x, y, w, h, r);
+        ctx.fill();
+      }
+
+      function text(value, x, y, size, color = "#fff", weight = 700, align = "left") {
+        ctx.fillStyle = color;
+        ctx.font = `${weight} ${size}px Inter, Arial, sans-serif`;
+        ctx.textAlign = align;
+        ctx.textBaseline = "top";
+        ctx.fillText(value, x, y);
+      }
+
+      function multiline(lines, x, y, size, color, weight = 500, gap = 10) {
+        lines.forEach((line, index) => text(line, x, y + index * (size + gap), size, color, weight));
+      }
+
+      function background() {
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, "#06070a");
+        g.addColorStop(0.5, "#101013");
+        g.addColorStop(1, "#06070a");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "rgba(255, 194, 31, 0.05)";
+        for (let i = 0; i < 9; i++) {
+          ctx.fillRect(i * 170 - 60, 0, 1, H);
+        }
+      }
+
+      function topBar() {
+        ctx.fillStyle = "#121318";
+        ctx.fillRect(0, 0, W, 72);
+        fillRound(72, 17, 38, 38, 8, "#ffc21f");
+        text("ELITE", 124, 22, 25, "#fff", 900);
+        text("GYM", 208, 22, 25, "#ffc21f", 900);
+        text("Application demo pour salle de sport", 920, 27, 17, "#cfd0d8", 600);
+      }
+
+      function phone(x, y, scale, screenName) {
+        const w = 300 * scale;
+        const h = 530 * scale;
+        fillRound(x, y, w, h, 34 * scale, "#1b1c22");
+        fillRound(x + 10 * scale, y + 10 * scale, w - 20 * scale, h - 20 * scale, 26 * scale, "#07080b");
+        fillRound(x + 98 * scale, y + 22 * scale, 104 * scale, 8 * scale, 4 * scale, "#33343b");
+        ctx.save();
+        ctx.translate(x + 26 * scale, y + 46 * scale);
+        ctx.scale(scale, scale);
+        text("ELITE GYM", 0, 0, 20, "#ffc21f", 900);
+
+        if (screenName === "signup") {
+          text("Inscription rapide", 0, 52, 24, "#fff", 900);
+          ["Nom complet", "Telephone", "Objectif"].forEach((label, i) => {
+            fillRound(0, 102 + i * 64, 248, 46, 8, "#191a20");
+            text(label, 16, 116 + i * 64, 15, "#bfc1cc", 600);
+          });
+          fillRound(0, 320, 248, 54, 10, "#ffc21f");
+          text("Creer mon espace", 38, 337, 17, "#08090b", 900);
+        }
+
+        if (screenName === "booking") {
+          text("Programmer une seance", 0, 52, 22, "#fff", 900);
+          ["Musculation", "Cardio", "Coaching"].forEach((label, i) => {
+            fillRound(0, 100 + i * 78, 248, 58, 10, i === 1 ? "#ffc21f" : "#191a20");
+            text(label, 18, 118 + i * 78, 17, i === 1 ? "#08090b" : "#fff", 800);
+          });
+          fillRound(0, 362, 112, 44, 8, "#191a20");
+          text("18:30", 28, 375, 17, "#fff", 800);
+          fillRound(130, 362, 118, 44, 8, "#ffc21f");
+          text("Reserver", 154, 375, 17, "#08090b", 900);
+        }
+
+        if (screenName === "payment") {
+          text("Paiement a la seance", 0, 52, 22, "#fff", 900);
+          fillRound(0, 104, 248, 116, 12, "#191a20");
+          text("Seance reservee", 20, 124, 18, "#fff", 900);
+          text("Aujourd'hui - 18:30", 20, 155, 15, "#bfc1cc", 600);
+          text("5 000 FCFA", 20, 184, 24, "#ffc21f", 900);
+          fillRound(0, 278, 248, 58, 12, "#20d66b");
+          text("Payer avec Wave", 48, 296, 18, "#041007", 900);
+        }
+
+        if (screenName === "admin") {
+          text("Tableau admin", 0, 52, 24, "#fff", 900);
+          [["Clients", "18"], ["Seances", "42"], ["Paiements", "31"]].forEach((row, i) => {
+            fillRound(0, 104 + i * 82, 248, 58, 10, "#191a20");
+            text(row[0], 18, 120 + i * 82, 16, "#cfd0d8", 700);
+            text(row[1], 206, 116 + i * 82, 24, "#ffc21f", 900);
+          });
+          fillRound(0, 366, 248, 48, 8, "#ffc21f");
+          text("Valider paiement", 48, 381, 16, "#08090b", 900);
+        }
+        ctx.restore();
+      }
+
+      function draw(time) {
+        background();
+        topBar();
+
+        if (time < 7) {
+          const alpha = fade(time, 0, 7);
+          ctx.globalAlpha = alpha;
+          fillRound(450, 135, 380, 160, 18, "#15161b");
+          fillRound(485, 182, 70, 70, 14, "#ffc21f");
+          text("ELITE", 585, 168, 58, "#fff", 950);
+          text("GYM", 585, 226, 58, "#ffc21f", 950);
+          text("ELITE GYM", 640, 340, 70, "#ffc21f", 950, "center");
+          text("Reservation, entrainement et paiement", 640, 442, 34, "#fff", 850, "center");
+          text("en quelques clics pour vos clients.", 640, 488, 34, "#fff", 850, "center");
+          ctx.textAlign = "center";
+          fillRound(500, 580, 280, 58, 10, "#ffc21f");
+          text("Demo application", 640, 596, 22, "#08090b", 900, "center");
+          ctx.globalAlpha = 1;
+          return;
+        }
+
+        if (time < 14) {
+          const alpha = fade(time, 7, 14);
+          ctx.globalAlpha = alpha;
+          phone(110, 120, 0.88, "signup");
+          text("Inscription client simple", 490, 168, 44, "#fff", 950);
+          multiline(
+            ["Le membre cree son dossier rapidement.", "Il retrouve ensuite ses reservations", "avec son code, son email ou son telephone."],
+            492,
+            242,
+            25,
+            "#cfd0d8",
+            600,
+            12
+          );
+          fillRound(492, 460, 240, 52, 8, "#ffc21f");
+          text("Code membre : ELITE2024", 516, 475, 19, "#08090b", 900);
+          ctx.globalAlpha = 1;
+          return;
+        }
+
+        if (time < 21) {
+          const alpha = fade(time, 14, 21);
+          ctx.globalAlpha = alpha;
+          phone(830, 120, 0.88, "booking");
+          text("Reservation de seance", 90, 168, 44, "#fff", 950);
+          multiline(
+            ["Choix de l'activite, du jour et de l'heure.", "La salle garde une vue claire des seances", "programmees par les clients."],
+            92,
+            242,
+            25,
+            "#cfd0d8",
+            600,
+            12
+          );
+          ["Musculation", "Cardio", "Coaching"].forEach((label, i) => {
+            fillRound(94 + i * 170, 452, 142, 48, 8, i === 1 ? "#ffc21f" : "#191a20");
+            text(label, 118 + i * 170, 466, 18, i === 1 ? "#08090b" : "#fff", 800);
+          });
+          ctx.globalAlpha = 1;
+          return;
+        }
+
+        if (time < 28) {
+          const alpha = fade(time, 21, 28);
+          ctx.globalAlpha = alpha;
+          phone(110, 120, 0.88, "payment");
+          text("Paiement Wave integre", 490, 168, 44, "#fff", 950);
+          multiline(
+            ["Apres la reservation, le client peut lancer", "le paiement Wave depuis son telephone.", "L'admin confirme ensuite le statut du paiement."],
+            492,
+            242,
+            25,
+            "#cfd0d8",
+            600,
+            12
+          );
+          fillRound(492, 462, 242, 56, 8, "#20d66b");
+          text("Payer avec Wave", 528, 478, 21, "#041007", 900);
+          ctx.globalAlpha = 1;
+          return;
+        }
+
+        const alpha = fade(time, 28, 36);
+        ctx.globalAlpha = alpha;
+        phone(830, 120, 0.88, "admin");
+        text("Espace admin prive", 90, 150, 44, "#fff", 950);
+        multiline(
+          ["Suivi des inscrits, reservations et transactions.", "Validation des paiements et point de journee.", "Une demo claire a presenter en rendez-vous."],
+          92,
+          224,
+          25,
+          "#cfd0d8",
+          600,
+          12
+        );
+        fillRound(92, 462, 232, 56, 8, "#ffc21f");
+        text("Admin : ADMIN2024", 116, 478, 20, "#08090b", 900);
+        ctx.globalAlpha = 1;
+      }
+
+      async function record() {
+        button.disabled = true;
+        status.textContent = "Generation de la video en cours...";
+
+        const stream = canvas.captureStream(fps);
+        const chunks = [];
+        const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+            ? "video/webm;codecs=vp8"
+            : "video/webm";
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 6_000_000,
+        });
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size) chunks.push(event.data);
+        };
+
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: "video/webm" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "elite-gym-demo-video.webm";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          status.textContent = "Video generee : elite-gym-demo-video.webm";
+          button.disabled = false;
+          window.videoDone = true;
+        };
+
+        recorder.start();
+        const start = performance.now();
+        function frame(now) {
+          const elapsed = Math.min((now - start) / 1000, duration);
+          draw(elapsed);
+          status.textContent = `Generation de la video : ${Math.round((elapsed / duration) * 100)}%`;
+          if (elapsed < duration) {
+            requestAnimationFrame(frame);
+          } else {
+            recorder.stop();
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+
+      window.addEventListener("error", (event) => {
+        status.textContent = `Erreur : ${event.message}`;
+      });
+      draw(1);
+      button.addEventListener("click", record);
+      window.addEventListener("load", () => {
+        if (new URLSearchParams(location.search).has("auto")) {
+          setTimeout(record, 500);
+        }
+      });
+    </script>
+  </body>
+</html>
