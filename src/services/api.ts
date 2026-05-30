@@ -23,7 +23,6 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
-      // Rediriger vers login si pas deja dessus
       if (!window.location.pathname.includes("/login")) {
         window.location.href = "/login";
       }
@@ -34,35 +33,23 @@ api.interceptors.response.use(
 
 export default api;
 
-// ── Auth API ───────────────────────────────────────────────────
+// ── Auth API (7 endpoints) ─────────────────────────────────────
 
 export const authApi = {
-  register: (data: {
-    full_name: string;
-    email?: string;
-    phone: string;
-    password: string;
-    sport_goal?: string;
-    plan_id?: number;
-  }) => api.post("/auth/register", data),
-
+  register: (data: { full_name: string; email?: string; phone: string; password: string; sport_goal?: string; plan_id?: number }) =>
+    api.post("/auth/register", data),
   login: (identifier: string, password: string) =>
     api.post("/auth/login", { identifier, password }),
-
   me: () => api.get("/auth/me"),
-
   logout: () => api.post("/auth/logout"),
-
   changePassword: (current_password: string, new_password: string) =>
     api.put("/auth/password", { current_password, new_password }),
-
   updateProfile: (data: { full_name?: string; email?: string; phone?: string; sport_goal?: string }) =>
     api.put("/auth/profile", data),
-
   refresh: () => api.post("/auth/refresh"),
 };
 
-// ── Plans API ──────────────────────────────────────────────────
+// ── Plans API (5) ──────────────────────────────────────────────
 
 export const plansApi = {
   getAll: (activeOnly = true) => api.get(`/plans${activeOnly ? "?active=true" : ""}`),
@@ -72,7 +59,7 @@ export const plansApi = {
   delete: (id: number) => api.delete(`/plans/${id}`),
 };
 
-// ── Users API ──────────────────────────────────────────────────
+// ── Users API (10) ─────────────────────────────────────────────
 
 export const usersApi = {
   getAll: (params?: { page?: number; limit?: number; keyword?: string; role?: string; status?: string }) =>
@@ -88,7 +75,7 @@ export const usersApi = {
   stats: () => api.get("/users/stats"),
 };
 
-// ── Subscriptions API ──────────────────────────────────────────
+// ── Subscriptions API (7) ──────────────────────────────────────
 
 export const subscriptionsApi = {
   getAll: (params?: { page?: number; status?: string; user_id?: number }) =>
@@ -102,7 +89,7 @@ export const subscriptionsApi = {
   expired: () => api.get("/subscriptions/expired"),
 };
 
-// ── Reservations API ───────────────────────────────────────────
+// ── Reservations API (9) ───────────────────────────────────────
 
 export const reservationsApi = {
   getAll: (params?: { page?: number; status?: string; date?: string; user_id?: number; session_id?: number }) =>
@@ -120,7 +107,7 @@ export const reservationsApi = {
   getSessions: () => api.get("/reservations/sessions"),
 };
 
-// ── Payments API ───────────────────────────────────────────────
+// ── Payments API (8) ───────────────────────────────────────────
 
 export const paymentsApi = {
   getAll: (params?: { page?: number; status?: string; method?: string; user_id?: number; date_from?: string; date_to?: string }) =>
@@ -136,17 +123,18 @@ export const paymentsApi = {
   monthlyStats: (year?: number, month?: number) => api.get("/payments/stats/monthly", { params: { year, month } }),
 };
 
-// ── Dashboard API ──────────────────────────────────────────────
+// ── Dashboard API (7) ──────────────────────────────────────────
 
 export const dashboardApi = {
   summary: () => api.get("/dashboard/summary"),
+  alerts: () => api.get("/dashboard/alerts"),
   dailyRevenue: (days?: number) => api.get("/dashboard/revenue/daily", { params: { days } }),
   monthlyRevenue: () => api.get("/dashboard/revenue/monthly"),
   todayReservations: () => api.get("/dashboard/reservations/today"),
   membersStats: () => api.get("/dashboard/members/stats"),
 };
 
-// ── Notifications API ──────────────────────────────────────────
+// ── Notifications API (5) ──────────────────────────────────────
 
 export const notificationsApi = {
   getAll: (unread = false) => api.get("/notifications", { params: { unread } }),
@@ -155,4 +143,160 @@ export const notificationsApi = {
   send: (data: { user_id?: number; title: string; message: string; type?: string; broadcast?: boolean }) =>
     api.post("/notifications", data),
   delete: (id: number) => api.delete(`/notifications/${id}`),
+};
+
+// ── Settings API (3) ───────────────────────────────────────────
+
+export const settingsApi = {
+  getPublic: () => api.get("/settings"),
+  getAll: () => api.get("/settings/all"),
+  update: (data: Record<string, string>) => api.put("/settings", data),
+};
+
+// ── Activity Logs API (1) ──────────────────────────────────────
+
+export const logsApi = {
+  getAll: (params?: { page?: number; action?: string; target_type?: string; admin_id?: string; date_from?: string; date_to?: string }) =>
+    api.get("/logs", { params }),
+};
+
+// ── QR Code API (3) ────────────────────────────────────────────
+
+export const qrcodeApi = {
+  getMy: () => api.get("/qrcode/my"),
+  verify: (qr_token: string) => api.post("/qrcode/verify", { qr_token }),
+  regenerate: () => api.post("/qrcode/regenerate"),
+};
+
+// ── Attendance API (6) ─────────────────────────────────────────
+
+export const attendanceApi = {
+  getInGym: () => api.get("/attendance/in-gym"),
+  checkIn: (user_id: number) => api.post("/attendance/check-in", { user_id }),
+  checkOut: (user_id: number) => api.post("/attendance/check-out", { user_id }),
+  getToday: () => api.get("/attendance/today"),
+  getHistory: (params?: { page?: number; user_id?: string; date_from?: string; date_to?: string }) =>
+    api.get("/attendance/history", { params }),
+  getStats: (days?: number) => api.get("/attendance/stats", { params: { days } }),
+};
+
+// ── Invoices API (4) ───────────────────────────────────────────
+
+export const invoicesApi = {
+  getAll: (params?: { page?: number; user_id?: string; status?: string }) =>
+    api.get("/invoices", { params }),
+  getUserInvoices: (userId: number) => api.get(`/invoices/user/${userId}`),
+  generate: (payment_id: number) => api.post("/invoices/generate", { payment_id }),
+  getPdf: (id: number) => api.get(`/invoices/${id}/pdf`),
+};
+
+// ── Progress API (3) ───────────────────────────────────────────
+
+export const progressApi = {
+  getUserProgress: (userId: number) => api.get(`/progress/user/${userId}`),
+  add: (data: { weight?: number; height?: number; body_fat?: number; muscle_mass?: number; goal?: string; notes?: string; recorded_at: string }) =>
+    api.post("/progress", data),
+  delete: (id: number) => api.delete(`/progress/${id}`),
+};
+
+// ── Workouts API (6) ───────────────────────────────────────────
+
+export const workoutsApi = {
+  getAll: (params?: { page?: number; user_id?: string }) =>
+    api.get("/workouts", { params }),
+  getUserPlans: (userId: number) => api.get(`/workouts/user/${userId}`),
+  getDetail: (id: number) => api.get(`/workouts/${id}`),
+  create: (data: any) => api.post("/workouts", data),
+  updateStatus: (id: number, status: string) => api.put(`/workouts/${id}/status`, { status }),
+  delete: (id: number) => api.delete(`/workouts/${id}`),
+};
+
+// ── Promos API (5) ─────────────────────────────────────────────
+
+export const promosApi = {
+  getAll: (activeOnly = false) => api.get("/promos", { params: { active: activeOnly } }),
+  create: (data: any) => api.post("/promos", data),
+  apply: (code: string, amount: number) => api.post("/promos/apply", { code, amount }),
+  update: (id: number, data: any) => api.put(`/promos/${id}`, data),
+  delete: (id: number) => api.delete(`/promos/${id}`),
+};
+
+// ── Referrals API (4) ──────────────────────────────────────────
+
+export const referralsApi = {
+  getMyCode: () => api.get("/referrals/my-code"),
+  useCode: (referral_code: string) => api.post("/referrals/use", { referral_code }),
+  getAll: () => api.get("/referrals"),
+  approve: (id: number) => api.put(`/referrals/${id}/approve`),
+};
+
+// ── Exports API (4) ────────────────────────────────────────────
+
+export const exportsApi = {
+  members: () => api.get("/exports/members", { responseType: "blob" }),
+  payments: (params?: { date_from?: string; date_to?: string }) =>
+    api.get("/exports/payments", { params, responseType: "blob" }),
+  reservations: () => api.get("/exports/reservations", { responseType: "blob" }),
+  attendance: () => api.get("/exports/attendance", { responseType: "blob" }),
+};
+
+// ── CRM API (5) ────────────────────────────────────────────────
+
+export const crmApi = {
+  getMemberCRM: (id: number) => api.get(`/crm/member/${id}`),
+  addNote: (userId: number, note: string) => api.post(`/crm/member/${userId}/note`, { note }),
+  deleteNote: (id: number) => api.delete(`/crm/note/${id}`),
+  getRiskScores: (level?: string) => api.get("/crm/risk-scores", { params: { level } }),
+  recalculateRiskScores: () => api.post("/crm/risk-scores/recalculate"),
+};
+
+// ── Messages API (5) ───────────────────────────────────────────
+
+export const messagesApi = {
+  getInbox: (params?: { page?: number }) => api.get("/messages/inbox", { params }),
+  getSent: () => api.get("/messages/sent"),
+  send: (data: { receiver_id?: number; title: string; content: string; type?: string; target_group?: string }) =>
+    api.post("/messages/send", data),
+  markRead: (id: number) => api.put(`/messages/${id}/read`),
+  getUnreadCount: () => api.get("/messages/unread-count"),
+};
+
+// ── Analytics API (5) ──────────────────────────────────────────
+
+export const analyticsApi = {
+  peakHours: (days?: number) => api.get("/analytics/peak-hours", { params: { days } }),
+  popularSessions: (days?: number) => api.get("/analytics/popular-sessions", { params: { days } }),
+  profitableDays: (days?: number) => api.get("/analytics/profitable-days", { params: { days } }),
+  topMembers: (days?: number, limit?: number) => api.get("/analytics/top-members", { params: { days, limit } }),
+  retention: () => api.get("/analytics/retention"),
+};
+
+// ── Branches API (4) ───────────────────────────────────────────
+
+export const branchesApi = {
+  getAll: () => api.get("/branches"),
+  create: (data: any) => api.post("/branches", data),
+  update: (id: number, data: any) => api.put(`/branches/${id}`, data),
+  delete: (id: number) => api.delete(`/branches/${id}`),
+};
+
+// ── Shop API (7) ───────────────────────────────────────────────
+
+export const shopApi = {
+  getProducts: (activeOnly = true) => api.get("/shop/products", { params: { active: activeOnly } }),
+  createProduct: (data: any) => api.post("/shop/products", data),
+  updateProduct: (id: number, data: any) => api.put(`/shop/products/${id}`, data),
+  deleteProduct: (id: number) => api.delete(`/shop/products/${id}`),
+  createSale: (data: any) => api.post("/shop/sales", data),
+  getSales: (params?: { page?: number }) => api.get("/shop/sales", { params }),
+  getSaleStats: () => api.get("/shop/sales/stats"),
+};
+
+// ── Badges API (4) ─────────────────────────────────────────────
+
+export const badgesApi = {
+  getAll: () => api.get("/badges"),
+  getUserBadges: (userId: number) => api.get(`/badges/user/${userId}`),
+  checkAndAward: (userId: number) => api.post(`/badges/check/${userId}`),
+  award: (user_id: number, badge_id: number) => api.post("/badges/award", { user_id, badge_id }),
 };

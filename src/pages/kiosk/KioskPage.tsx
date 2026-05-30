@@ -1,113 +1,137 @@
-import { useState } from "react";
-import { Dumbbell, QrCode, CheckCircle, XCircle, Clock } from "lucide-react";
-import api from "../../services/api";
+import { useEffect, useState } from "react";
+import { Dumbbell, QrCode, Shield, Users } from "lucide-react";
+import axios from "axios";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+const FRONTEND_URL = window.location.origin;
+const CHECKIN_URL = `${FRONTEND_URL}/checkin`;
+
+const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(CHECKIN_URL)}&color=18181b&bgcolor=fbbf24&margin=10`;
 
 export function KioskPage() {
-  const [qrInput, setQrInput] = useState("");
-  const [result, setResult] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [time, setTime] = useState(new Date());
+  const [inGymCount, setInGymCount] = useState(0);
+  const [recentEntries, setRecentEntries] = useState<any[]>([]);
 
-  const handleScan = async () => {
-    const token = qrInput.trim();
-    if (!token) return;
+  // Horloge
+  useEffect(() => {
+    const interval = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-    setLoading(true);
-    setResult(null);
-    setError("");
-
-    try {
-      // Le kiosque doit etre authentifie en tant qu'admin
-      const adminToken = localStorage.getItem("token");
-      const { data } = await api.post("/qrcode/verify", { qr_token: token }, {
-        headers: { Authorization: `Bearer ${adminToken}` },
-      });
-
-      setResult(data.data);
-    } catch (err: any) {
-      const msg = err.response?.data?.message || "QR code invalide";
-      setError(msg);
-      setResult({ access: "DENIED" });
-    }
-
-    setLoading(false);
-    setQrInput("");
-
-    // Reset apres 5 secondes
-    setTimeout(() => {
-      setResult(null);
-      setError("");
-    }, 5000);
-  };
+  // Refresh presences toutes les 10 secondes
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        if (token) {
+          const { data } = await axios.get(`${API_URL}/attendance/in-gym`, { headers: { Authorization: `Bearer ${token}` } });
+          setInGymCount(data.data?.count || 0);
+          const { data: todayData } = await axios.get(`${API_URL}/attendance/today`, { headers: { Authorization: `Bearer ${token}` } });
+          setRecentEntries((todayData.data?.logs || []).filter((l: any) => l.status === "VALID").slice(0, 5));
+        }
+      } catch {}
+    };
+    load();
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-6" style={{ fontFamily: "system-ui, sans-serif" }}>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col" style={{ fontFamily: "system-ui, sans-serif" }}>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-10">
-        <span className="bg-amber-400 text-zinc-950 p-3 rounded-xl">
-          <Dumbbell size={32} />
-        </span>
-        <div>
-          <div className="text-3xl font-black tracking-tight">ELITE GYM</div>
-          <div className="text-sm text-zinc-400">Borne d'accueil</div>
+      <div className="bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="bg-amber-400 text-zinc-950 p-2.5 rounded-xl">
+            <Dumbbell size={28} />
+          </span>
+          <div>
+            <div className="text-2xl font-black tracking-tight">ELITE GYM</div>
+            <div className="text-xs text-zinc-400">Borne d'accueil</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-3xl font-bold text-amber-400 font-mono">
+            {time.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          </div>
+          <div className="text-xs text-zinc-500">
+            {time.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </div>
         </div>
       </div>
 
-      {/* Resultat */}
-      {result ? (
-        result.access === "GRANTED" ? (
-          <div className="bg-green-500/10 border-2 border-green-500 rounded-3xl p-10 text-center max-w-md w-full animate-in">
-            <CheckCircle className="mx-auto text-green-400 mb-4" size={64} />
-            <div className="text-3xl font-black text-green-400 mb-2">ACCES AUTORISE</div>
-            <div className="text-xl font-bold mb-1">{result.member?.full_name}</div>
-            <div className="text-zinc-400 text-sm">{result.member?.member_code}</div>
-            {result.subscription && (
-              <div className="mt-4 bg-zinc-950/50 rounded-xl p-3">
-                <div className="text-sm text-zinc-400">{result.subscription.plan_name}</div>
-                <div className="text-amber-400 font-bold">{result.subscription.days_left} jours restants</div>
-              </div>
-            )}
-            {result.pending_payments > 0 && (
-              <div className="mt-3 text-amber-400 text-sm">
-                {result.pending_payments} paiement(s) en attente
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="bg-red-500/10 border-2 border-red-500 rounded-3xl p-10 text-center max-w-md w-full animate-in">
-            <XCircle className="mx-auto text-red-400 mb-4" size={64} />
-            <div className="text-3xl font-black text-red-400 mb-2">ACCES REFUSE</div>
-            <div className="text-zinc-400">{error || "Veuillez contacter l'accueil"}</div>
-          </div>
-        )
-      ) : (
-        <div className="max-w-md w-full text-center">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 mb-6">
-            <QrCode className="mx-auto text-amber-400 mb-4" size={48} />
-            <h2 className="text-xl font-bold mb-2">Scanner votre QR code</h2>
-            <p className="text-zinc-400 text-sm mb-6">Presentez votre QR code ou entrez votre code membre</p>
-            <input
-              value={qrInput}
-              onChange={(e) => setQrInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleScan()}
-              placeholder="Code QR ou code membre..."
-              autoFocus
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-4 text-center text-lg font-mono focus:border-amber-400 focus:outline-none mb-4"
-            />
-            <button
-              onClick={handleScan}
-              disabled={loading || !qrInput.trim()}
-              className="w-full bg-amber-400 hover:bg-amber-300 disabled:bg-zinc-800 text-zinc-950 font-bold py-4 rounded-xl text-lg transition">
-              {loading ? "Verification..." : "Valider l'entree"}
-            </button>
+      {/* Contenu */}
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex flex-col lg:flex-row items-center gap-10 max-w-5xl w-full">
+          {/* QR Code */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 text-center flex-shrink-0">
+            <div className="inline-flex bg-amber-400/10 p-3 rounded-full mb-4">
+              <QrCode size={32} className="text-amber-400" />
+            </div>
+            <h2 className="text-xl font-bold mb-1">Scannez pour entrer</h2>
+            <p className="text-zinc-400 text-sm mb-6">Ouvrez la camera de votre telephone et scannez ce QR code</p>
+
+            <div className="inline-block bg-amber-400 p-4 rounded-2xl mb-4">
+              <img src={qrImageUrl} alt="QR Code check-in" className="rounded-lg" width={300} height={300} />
+            </div>
+
+            <div className="flex items-center justify-center gap-2 text-zinc-500 text-xs mt-2">
+              <Shield size={12} />
+              <span>Verification automatique du compte</span>
+            </div>
           </div>
 
-          <div className="flex items-center justify-center gap-2 text-zinc-600 text-sm">
-            <Clock size={14} />
-            <span>{new Date().toLocaleString("fr-FR")}</span>
+          {/* Infos */}
+          <div className="flex-1 w-full max-w-sm">
+            {/* En salle */}
+            <div className="bg-zinc-900 border border-green-500/30 rounded-2xl p-6 mb-5 text-center">
+              <Users className="mx-auto text-green-400 mb-2" size={32} />
+              <div className="text-4xl font-black text-green-400">{inGymCount}</div>
+              <div className="text-sm text-zinc-400 mt-1">personne(s) en salle</div>
+            </div>
+
+            {/* Instructions */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 mb-5">
+              <h3 className="font-bold mb-3">Comment entrer</h3>
+              <div className="space-y-3 text-sm text-zinc-400">
+                <div className="flex items-start gap-3">
+                  <span className="bg-amber-400 text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                  <span>Ouvrez la camera de votre telephone</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="bg-amber-400 text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                  <span>Scannez le QR code affiche sur cet ecran</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="bg-amber-400 text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                  <span>Connectez-vous si ce n'est pas deja fait</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="bg-amber-400 text-zinc-950 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0">4</span>
+                  <span>Votre entree est enregistree automatiquement</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Derniers check-ins */}
+            {recentEntries.length > 0 && (
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                <h3 className="font-bold mb-3 text-sm">Dernieres entrees</h3>
+                <div className="space-y-2">
+                  {recentEntries.map((entry: any) => (
+                    <div key={entry.id} className="flex items-center justify-between text-sm">
+                      <span className="text-zinc-300">{entry.full_name}</span>
+                      <span className="text-xs text-zinc-500">
+                        {new Date(entry.check_in_time).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

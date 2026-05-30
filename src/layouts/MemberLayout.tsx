@@ -1,11 +1,17 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Calendar, CreditCard, Dumbbell, Home, LogOut, User } from "lucide-react";
+import { Award, Calendar, CreditCard, Dumbbell, Gift, Home, LogOut, Mail, QrCode, TrendingUp, User } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
 const NAV_ITEMS = [
   { path: "/membre", label: "Accueil", icon: Home },
+  { path: "/membre/qrcode", label: "QR Code", icon: QrCode },
   { path: "/membre/reservations", label: "Reservations", icon: Calendar },
   { path: "/membre/paiements", label: "Paiements", icon: CreditCard },
+  { path: "/membre/programmes", label: "Programmes", icon: Dumbbell },
+  { path: "/membre/progression", label: "Progression", icon: TrendingUp },
+  { path: "/membre/badges", label: "Badges", icon: Award },
+  { path: "/membre/parrainage", label: "Parrainage", icon: Gift },
+  { path: "/membre/messages", label: "Messages", icon: Mail },
   { path: "/membre/profil", label: "Profil", icon: User },
 ];
 
@@ -27,12 +33,12 @@ export function MemberLayout() {
             <span className="bg-amber-400 text-zinc-950 p-1.5 rounded-lg">
               <Dumbbell size={20} />
             </span>
-            <span>
+            <span className="hidden sm:inline">
               ELITE <span className="text-amber-400">GYM</span>
             </span>
           </Link>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-zinc-400 hidden sm:inline">
+            <span className="text-sm text-zinc-400 hidden md:inline">
               {user?.full_name}
             </span>
             <button onClick={handleLogout} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition">
@@ -42,20 +48,20 @@ export function MemberLayout() {
         </div>
       </nav>
 
-      {/* Sub-nav tabs */}
+      {/* Sub-nav tabs — scrollable horizontalement */}
       <div className="bg-zinc-900 border-b border-zinc-800">
-        <div className="max-w-5xl mx-auto px-4 flex gap-1 overflow-x-auto py-2">
+        <div className="max-w-5xl mx-auto px-4 flex gap-1 overflow-x-auto py-2 scrollbar-hide">
           {NAV_ITEMS.map((item) => {
             const active = location.pathname === item.path;
             return (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition ${
                   active ? "bg-amber-400 text-zinc-950" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
                 }`}>
-                <item.icon size={16} />
-                {item.label}
+                <item.icon size={15} />
+                <span className="hidden sm:inline">{item.label}</span>
               </Link>
             );
           })}

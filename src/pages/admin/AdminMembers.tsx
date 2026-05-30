@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { usersApi } from "../../services/api";
-import { Search, Trash2, UserCheck, UserX, RefreshCw } from "lucide-react";
+import { Search, Trash2, UserCheck, UserX, RefreshCw, FileUser } from "lucide-react";
 import { useConfirm, Select } from "../../components/ui";
 
 const ROLE_OPTIONS = [
@@ -65,14 +66,67 @@ export function AdminMembers() {
     }, { title: c.title, variant: c.variant, confirmLabel: c.label });
   };
 
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ full_name: "", phone: "", email: "", password: "", role: "MEMBER", status: "ACTIVE" });
+
+  const handleCreate = async () => {
+    if (!createForm.full_name || !createForm.phone || !createForm.password) {
+      setMessage({ type: "error", text: "Nom, telephone et mot de passe requis" });
+      return;
+    }
+    try {
+      await usersApi.create(createForm);
+      setMessage({ type: "success", text: `${createForm.role === "COACH" ? "Coach" : "Membre"} cree` });
+      setShowCreate(false);
+      setCreateForm({ full_name: "", phone: "", email: "", password: "", role: "MEMBER", status: "ACTIVE" });
+      loadUsers(1);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.response?.data?.message || "Erreur" });
+    }
+  };
+
   return (
     <div>
       {dialog}
-      <h1 className="text-2xl font-bold mb-6">Gestion des membres</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Gestion des membres</h1>
+        <button onClick={() => setShowCreate(!showCreate)} className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm">
+          <UserCheck size={16} /> Creer un membre / coach
+        </button>
+      </div>
 
       {message.text && (
         <div className={`rounded-xl p-3 mb-4 text-sm ${message.type === "success" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
           {message.text}
+        </div>
+      )}
+
+      {/* Formulaire creation */}
+      {showCreate && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
+          <h3 className="font-bold mb-4">Nouveau membre ou coach</h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div><label className="block text-xs text-zinc-400 mb-1">Nom complet *</label>
+              <input value={createForm.full_name} onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })} placeholder="Nom complet"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Telephone *</label>
+              <input value={createForm.phone} onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+221 77..."
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Email</label>
+              <input value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder="email@exemple.com"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Mot de passe *</label>
+              <input type="password" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} placeholder="Min 6 caracteres"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Role</label>
+              <Select value={createForm.role} onChange={(v) => setCreateForm({ ...createForm, role: v })} options={[{ value: "MEMBER", label: "Membre" }, { value: "COACH", label: "Coach" }, { value: "ADMIN", label: "Admin" }]} /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Statut</label>
+              <Select value={createForm.status} onChange={(v) => setCreateForm({ ...createForm, status: v })} options={[{ value: "ACTIVE", label: "Actif" }, { value: "PENDING", label: "En attente" }]} /></div>
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button onClick={handleCreate} className="bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-5 py-2.5 rounded-lg text-sm">Creer</button>
+            <button onClick={() => setShowCreate(false)} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-5 py-2.5 rounded-lg text-sm">Annuler</button>
+          </div>
         </div>
       )}
 
@@ -108,6 +162,8 @@ export function AdminMembers() {
                 <div className="text-xs text-zinc-500 truncate">{u.email || u.phone}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <Link to={`/admin/membres/${u.id}/crm`} title="Fiche CRM"
+                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-amber-400/20 text-zinc-400 hover:text-amber-400"><FileUser size={16} /></Link>
                 <StatusBadge status={u.status} />
                 {u.status === "PENDING" && (
                   <button onClick={() => handleAction("Valider", u.id, u.full_name)} title="Valider"
