@@ -10,11 +10,18 @@ async function seed() {
   try {
     await connection.query(`USE \`${env.db.name}\``);
 
-    // Admin par defaut
+    // Admin de demonstration
     const passwordHash = await bcrypt.hash("admin123", 12);
     await connection.query(`
-      INSERT IGNORE INTO users (full_name, email, phone, password_hash, role, status, member_code)
+      INSERT INTO users (full_name, email, phone, password_hash, role, status, member_code)
       VALUES ('Administrateur', 'admin@elitegym.com', '+221770000000', ?, 'ADMIN', 'ACTIVE', 'ADMIN001')
+      ON DUPLICATE KEY UPDATE
+        full_name = VALUES(full_name),
+        phone = VALUES(phone),
+        password_hash = VALUES(password_hash),
+        role = VALUES(role),
+        status = VALUES(status),
+        member_code = VALUES(member_code)
     `, [passwordHash]);
 
     // Plans d'abonnement
