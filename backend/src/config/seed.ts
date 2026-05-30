@@ -28,6 +28,40 @@ async function seed() {
       (6, 'VIP', 'Acces VIP illimite + coaching', 50000.00, 30, TRUE)
     `);
 
+    // Membre de demonstration
+    const memberPasswordHash = await bcrypt.hash("test123", 12);
+    await connection.query(`
+      INSERT IGNORE INTO users (full_name, email, phone, password_hash, role, status, member_code, sport_goal)
+      VALUES ('Moussa Demo', 'moussa@test.com', '+221771111111', ?, 'MEMBER', 'ACTIVE', 'MBR001', 'Remise en forme')
+    `, [memberPasswordHash]);
+
+    const [demoMembers] = await connection.query<any[]>(
+      "SELECT id FROM users WHERE email = 'moussa@test.com' LIMIT 1"
+    );
+
+    if (demoMembers.length > 0) {
+      const memberId = demoMembers[0].id;
+      const startDate = new Date().toISOString().split("T")[0];
+      const endDate = new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+
+      await connection.query(`
+        INSERT IGNORE INTO subscriptions (user_id, plan_id, start_date, end_date, status)
+        VALUES (?, 2, ?, ?, 'ACTIVE')
+      `, [memberId, startDate, endDate]);
+
+      const [subscriptions] = await connection.query<any[]>(
+        "SELECT id FROM subscriptions WHERE user_id = ? AND plan_id = 2 AND status = 'ACTIVE' LIMIT 1",
+        [memberId]
+      );
+
+      if (subscriptions.length > 0) {
+        await connection.query(`
+          INSERT IGNORE INTO payments (user_id, subscription_id, amount, payment_method, status, transaction_reference, paid_at)
+          VALUES (?, ?, 25000.00, 'WAVE', 'PAID', 'DEMO-MEMBER-001', NOW())
+        `, [memberId, subscriptions[0].id]);
+      }
+    }
+
     // Types de seances
     await connection.query(`
       INSERT IGNORE INTO sessions (id, name, description, capacity, duration_minutes, is_active) VALUES
