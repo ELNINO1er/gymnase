@@ -54,6 +54,7 @@ export const router = createBrowserRouter([
       { path: "/", element: <HomePage /> },
       { path: "/plans", element: <PlansPage /> },
       { path: "/login", element: <LoginPage /> },
+      { path: "/admin/login", element: <LoginPage adminOnly /> },
       { path: "/register", element: <RegisterPage /> },
     ],
   },
@@ -82,7 +83,7 @@ export const router = createBrowserRouter([
   // ── Routes admin ─────────────────────────────────────────
   {
     element: (
-      <ProtectedRoute roles={["ADMIN", "SUPER_ADMIN"]}>
+      <ProtectedRoute roles={["ADMIN", "SUPER_ADMIN"]} loginPath="/admin/login">
         <AdminLayout />
       </ProtectedRoute>
     ),
