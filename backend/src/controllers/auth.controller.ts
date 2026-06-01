@@ -158,6 +158,8 @@ export async function login(req: Request, res: Response) {
       userId: user.id,
       role: user.role,
       email: user.email,
+      gymId: user.gym_id ?? null,
+      isPlatformAdmin: Boolean(user.is_platform_admin),
     });
 
     // Charger abonnement actif si membre
@@ -183,6 +185,8 @@ export async function login(req: Request, res: Response) {
         phone: user.phone,
         role: user.role,
         status: user.status,
+        gym_id: user.gym_id,
+        is_platform_admin: Boolean(user.is_platform_admin),
         member_code: user.member_code,
         sport_goal: user.sport_goal,
         created_at: user.created_at,
@@ -205,7 +209,7 @@ export async function me(req: Request, res: Response) {
     }
 
     const users = await query<any[]>(
-      `SELECT id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at
+      `SELECT id, full_name, email, phone, role, status, gym_id, is_platform_admin, member_code, sport_goal, created_at, updated_at
        FROM users WHERE id = ?`,
       [req.user.userId]
     );
@@ -398,6 +402,8 @@ export async function refreshToken(req: Request, res: Response) {
       userId: user.id,
       role: user.role,
       email: user.email,
+      gymId: user.gym_id ?? null,
+      isPlatformAdmin: Boolean(user.is_platform_admin),
     });
 
     success(res, { token });

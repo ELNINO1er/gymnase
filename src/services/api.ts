@@ -300,3 +300,23 @@ export const badgesApi = {
   checkAndAward: (userId: number) => api.post(`/badges/check/${userId}`),
   award: (user_id: number, badge_id: number) => api.post("/badges/award", { user_id, badge_id }),
 };
+
+// ── Platform API ───────────────────────────────────────────────
+
+export const platformApi = {
+  summary: () => api.get("/platform/summary"),
+  gyms: (status?: string) => api.get("/platform/gyms", { params: status ? { status } : undefined }),
+  createGym: (data: {
+    name: string;
+    slug?: string;
+    owner_name?: string;
+    owner_email?: string;
+    owner_phone?: string;
+    owner_password?: string;
+    city?: string;
+    country?: string;
+    status?: "PENDING" | "ACTIVE" | "SUSPENDED";
+  }) => api.post("/platform/gyms", data),
+  updateGymStatus: (id: number, status: "PENDING" | "ACTIVE" | "SUSPENDED") =>
+    api.put(`/platform/gyms/${id}/status`, { status }),
+};

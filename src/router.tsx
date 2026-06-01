@@ -45,6 +45,7 @@ import { AdminNotifications } from "./pages/admin/AdminNotifications";
 import { AdminRiskScores } from "./pages/admin/AdminRiskScores";
 import { AdminSubscriptions } from "./pages/admin/AdminSubscriptions";
 import { AdminInvoices } from "./pages/admin/AdminInvoices";
+import { AdminPlatform } from "./pages/admin/AdminPlatform";
 
 export const router = createBrowserRouter([
   // ── Routes publiques ─────────────────────────────────────
@@ -108,6 +109,7 @@ export const router = createBrowserRouter([
       { path: "/admin/risques", element: <AdminRiskScores /> },
       { path: "/admin/abonnements", element: <AdminSubscriptions /> },
       { path: "/admin/factures", element: <AdminInvoices /> },
+      { path: "/admin/plateforme", element: <AdminPlatform /> },
     ],
   },
 

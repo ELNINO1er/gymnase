@@ -6,6 +6,8 @@ export interface JwtPayload {
   userId: number;
   role: string;
   email: string;
+  gymId?: number | null;
+  isPlatformAdmin?: boolean;
 }
 
 declare global {
@@ -49,4 +51,18 @@ export function roleGuard(...roles: string[]) {
 
     next();
   };
+}
+
+export function platformGuard(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    res.status(401).json({ success: false, message: "Non authentifie", error: "TOKEN_MISSING" });
+    return;
+  }
+
+  if (!req.user.isPlatformAdmin) {
+    res.status(403).json({ success: false, message: "Acces plateforme refuse", error: "PLATFORM_FORBIDDEN" });
+    return;
+  }
+
+  next();
 }

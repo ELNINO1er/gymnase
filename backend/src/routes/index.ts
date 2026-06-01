@@ -23,6 +23,7 @@ import analyticsRoutes from "./analytics.routes.js";
 import branchesRoutes from "./branches.routes.js";
 import shopRoutes from "./shop.routes.js";
 import badgesRoutes from "./badges.routes.js";
+import platformRoutes from "./platform.routes.js";
 
 const router = Router();
 
@@ -56,5 +57,6 @@ router.use("/analytics", analyticsRoutes);
 router.use("/branches", branchesRoutes);
 router.use("/shop", shopRoutes);
 router.use("/badges", badgesRoutes);
+router.use("/platform", platformRoutes);
 
 export default router;

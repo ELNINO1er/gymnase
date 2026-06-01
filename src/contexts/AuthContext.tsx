@@ -11,6 +11,8 @@ export interface User {
   phone: string;
   role: UserRole;
   status: UserStatus;
+  gym_id?: number | null;
+  is_platform_admin?: boolean;
   member_code: string;
   sport_goal?: string;
   created_at: string;
@@ -46,6 +48,7 @@ interface AuthContextType extends AuthState {
   logout: () => void;
   refreshUser: () => Promise<void>;
   isAdmin: boolean;
+  isPlatformAdmin: boolean;
   isMember: boolean;
   isAuthenticated: boolean;
 }
@@ -62,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!state.user && !!state.token;
   const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
+  const isPlatformAdmin = !!state.user?.is_platform_admin;
   const isMember = state.user?.role === "MEMBER";
 
   // Charger le profil au demarrage si token present
@@ -142,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       refreshUser,
       isAdmin,
+      isPlatformAdmin,
       isMember,
       isAuthenticated,
     }}>

@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, BarChart3, Bell, Calendar, CreditCard, DoorOpen, Download, FileText, Gift, Home, Layers, LogOut, Mail, MapPin, Receipt, Settings, ShieldCheck, ShoppingBag, Dumbbell, UserCheck, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, Bell, Calendar, CreditCard, DoorOpen, Download, FileText, Gift, Home, Layers, LogOut, Mail, MapPin, Network, Receipt, Settings, ShieldCheck, ShoppingBag, Dumbbell, UserCheck, Users } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
 const NAV_ITEMS = [
@@ -77,6 +77,16 @@ export function AdminLayout() {
               </Link>
             );
           })}
+          {user?.is_platform_admin && (
+            <Link
+              to="/admin/plateforme"
+              className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition ${
+                location.pathname === "/admin/plateforme" ? "bg-amber-400 text-zinc-950" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+              }`}>
+              <Network size={14} />
+              <span className="hidden sm:inline">Plateforme</span>
+            </Link>
+          )}
         </div>
       </div>
 
