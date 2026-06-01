@@ -319,4 +319,11 @@ export const platformApi = {
   }) => api.post("/platform/gyms", data),
   updateGymStatus: (id: number, status: "PENDING" | "ACTIVE" | "SUSPENDED") =>
     api.put(`/platform/gyms/${id}/status`, { status }),
+  admins: () => api.get("/platform/admins"),
+  createAdmin: (data: {
+    full_name: string;
+    email: string;
+    phone: string;
+    password: string;
+  }) => api.post("/platform/admins", data),
 };

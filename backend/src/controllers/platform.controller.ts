@@ -17,6 +17,13 @@ const gymSchema = z.object({
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED"]).optional(),
 });
 
+const platformAdminSchema = z.object({
+  full_name: z.string().min(2).max(150),
+  email: z.string().email().max(150),
+  phone: z.string().min(8).max(30),
+  password: z.string().min(8).max(100),
+});
+
 function toSlug(value: string) {
   return value
     .toLowerCase()
@@ -166,5 +173,55 @@ export async function getPlatformSummary(_req: Request, res: Response) {
   } catch (err) {
     console.error("[PLATFORM] summary error:", err);
     error(res, "Erreur lors du chargement du resume plateforme", 500);
+  }
+}
+
+export async function listPlatformAdmins(_req: Request, res: Response) {
+  try {
+    const admins = await query<any[]>(
+      `SELECT id, full_name, email, phone, role, status, created_at
+       FROM users
+       WHERE is_platform_admin = TRUE AND status != 'DELETED'
+       ORDER BY created_at DESC`
+    );
+
+    success(res, admins);
+  } catch (err) {
+    console.error("[PLATFORM] listPlatformAdmins error:", err);
+    error(res, "Erreur lors du chargement des super admins", 500);
+  }
+}
+
+export async function createPlatformAdmin(req: Request, res: Response) {
+  try {
+    const parsed = platformAdminSchema.safeParse(req.body);
+    if (!parsed.success) {
+      error(res, parsed.error.errors.map((e) => e.message).join(", "));
+      return;
+    }
+
+    const { full_name, email, phone, password } = parsed.data;
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const result = await query<any>(
+      `INSERT INTO users (gym_id, full_name, email, phone, password_hash, role, status, is_platform_admin, member_code)
+       VALUES (NULL, ?, ?, ?, ?, 'SUPER_ADMIN', 'ACTIVE', TRUE, ?)`,
+      [full_name, email, phone, passwordHash, generateMemberCode()]
+    );
+
+    const admins = await query<any[]>(
+      `SELECT id, full_name, email, phone, role, status, created_at
+       FROM users WHERE id = ?`,
+      [result.insertId]
+    );
+
+    success(res, admins[0], 201);
+  } catch (err: any) {
+    console.error("[PLATFORM] createPlatformAdmin error:", err);
+    if (err?.code === "ER_DUP_ENTRY") {
+      error(res, "Un utilisateur existe deja avec cet email, telephone ou code", 409);
+      return;
+    }
+    error(res, "Erreur lors de la creation du super admin", 500);
   }
 }

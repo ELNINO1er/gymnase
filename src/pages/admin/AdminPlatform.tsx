@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, CheckCircle2, PauseCircle, Plus, ShieldCheck } from "lucide-react";
+import { Building2, CheckCircle2, PauseCircle, Plus, ShieldCheck, UserPlus } from "lucide-react";
 import { platformApi } from "../../services/api";
 
 type GymStatus = "PENDING" | "ACTIVE" | "SUSPENDED";
@@ -18,6 +18,15 @@ interface Gym {
   admins_count: number;
 }
 
+interface PlatformAdmin {
+  id: number;
+  full_name: string;
+  email: string;
+  phone: string;
+  role: string;
+  status: string;
+}
+
 const statusLabels: Record<GymStatus, string> = {
   PENDING: "En attente",
   ACTIVE: "Validee",
@@ -26,8 +35,10 @@ const statusLabels: Record<GymStatus, string> = {
 
 export function AdminPlatform() {
   const [gyms, setGyms] = useState<Gym[]>([]);
+  const [admins, setAdmins] = useState<PlatformAdmin[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingAdmin, setSavingAdmin] = useState(false);
   const [form, setForm] = useState({
     name: "",
     owner_name: "",
@@ -37,12 +48,22 @@ export function AdminPlatform() {
     city: "",
     country: "",
   });
+  const [adminForm, setAdminForm] = useState({
+    full_name: "",
+    email: "",
+    phone: "",
+    password: "",
+  });
 
   async function load() {
     setLoading(true);
     try {
-      const { data } = await platformApi.gyms();
-      setGyms(data.data || []);
+      const [gymsResponse, adminsResponse] = await Promise.all([
+        platformApi.gyms(),
+        platformApi.admins(),
+      ]);
+      setGyms(gymsResponse.data.data || []);
+      setAdmins(adminsResponse.data.data || []);
     } finally {
       setLoading(false);
     }
@@ -71,6 +92,20 @@ export function AdminPlatform() {
   async function updateStatus(id: number, status: GymStatus) {
     await platformApi.updateGymStatus(id, status);
     await load();
+  }
+
+  async function createPlatformAdmin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!adminForm.full_name.trim() || !adminForm.email.trim() || !adminForm.phone.trim() || !adminForm.password.trim()) return;
+
+    setSavingAdmin(true);
+    try {
+      await platformApi.createAdmin(adminForm);
+      setAdminForm({ full_name: "", email: "", phone: "", password: "" });
+      await load();
+    } finally {
+      setSavingAdmin(false);
+    }
   }
 
   return (
@@ -113,6 +148,30 @@ export function AdminPlatform() {
           <div className="text-2xl font-black">{gyms.filter((g) => g.status === "ACTIVE").length}</div>
         </div>
       </div>
+
+      <form onSubmit={createPlatformAdmin} className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 space-y-4">
+        <div className="flex items-center gap-2 text-lg font-bold">
+          <UserPlus size={18} className="text-amber-400" />
+          Creer un super admin plateforme
+        </div>
+        <div className="grid md:grid-cols-4 gap-3">
+          <input className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2" placeholder="Nom complet" value={adminForm.full_name} onChange={(e) => setAdminForm({ ...adminForm, full_name: e.target.value })} />
+          <input className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2" placeholder="Email" value={adminForm.email} onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })} />
+          <input className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2" placeholder="Telephone" value={adminForm.phone} onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })} />
+          <input className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2" placeholder="Mot de passe" type="password" value={adminForm.password} onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })} />
+        </div>
+        <button disabled={savingAdmin} className="px-4 py-2 rounded-lg bg-amber-400 text-zinc-950 font-bold disabled:opacity-60">
+          {savingAdmin ? "Creation..." : "Creer le super admin"}
+        </button>
+        <div className="grid md:grid-cols-2 gap-2">
+          {admins.map((admin) => (
+            <div key={admin.id} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+              <div className="font-bold">{admin.full_name}</div>
+              <div className="text-sm text-zinc-400">{admin.email} · {admin.phone}</div>
+            </div>
+          ))}
+        </div>
+      </form>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
         <div className="p-4 border-b border-zinc-800 font-bold">Salles enregistrees</div>
