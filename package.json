@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "postinstall": "npm --prefix backend install && npm --prefix backend run build",
+    "postinstall": "npm --prefix backend install --include=dev && npm --prefix backend run build",
     "test": "vitest run",
     "preview": "vite preview"
   },
