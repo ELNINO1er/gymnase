@@ -49,6 +49,11 @@ export function roleGuard(...roles: string[]) {
       return;
     }
 
+    if (req.user.isPlatformAdmin && !req.user.gymId) {
+      res.status(403).json({ success: false, message: "Selectionnez une salle avant d'acceder a cet espace", error: "GYM_CONTEXT_REQUIRED" });
+      return;
+    }
+
     next();
   };
 }

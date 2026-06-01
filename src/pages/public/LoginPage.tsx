@@ -28,6 +28,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
       // Redirect based on role — need to re-read from localStorage since state updates async
       const user = JSON.parse(localStorage.getItem("user") || "{}");
       const isAdminUser = ["ADMIN", "SUPER_ADMIN"].includes(user.role);
+      const isPlatformAdmin = Boolean(user.is_platform_admin);
 
       if (adminOnly && !isAdminUser) {
         logout();
@@ -35,7 +36,7 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
         return;
       }
 
-      navigate(isAdminUser ? "/admin" : "/membre");
+      navigate(isPlatformAdmin && !user.gym_id ? "/plateforme" : isAdminUser ? "/admin" : "/membre");
     } else {
       setError(result.error || "Erreur de connexion");
     }

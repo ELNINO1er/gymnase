@@ -5,6 +5,7 @@ import { ProtectedRoute } from "./components/guards/ProtectedRoute";
 import { PublicLayout } from "./layouts/PublicLayout";
 import { MemberLayout } from "./layouts/MemberLayout";
 import { AdminLayout } from "./layouts/AdminLayout";
+import { PlatformLayout } from "./layouts/PlatformLayout";
 
 // Pages publiques
 import { HomePage } from "./pages/public/HomePage";
@@ -84,7 +85,7 @@ export const router = createBrowserRouter([
   // ── Routes admin ─────────────────────────────────────────
   {
     element: (
-      <ProtectedRoute roles={["ADMIN", "SUPER_ADMIN"]} loginPath="/admin/login">
+      <ProtectedRoute roles={["ADMIN", "SUPER_ADMIN"]} loginPath="/admin/login" requireGym>
         <AdminLayout />
       </ProtectedRoute>
     ),
@@ -109,7 +110,18 @@ export const router = createBrowserRouter([
       { path: "/admin/risques", element: <AdminRiskScores /> },
       { path: "/admin/abonnements", element: <AdminSubscriptions /> },
       { path: "/admin/factures", element: <AdminInvoices /> },
-      { path: "/admin/plateforme", element: <AdminPlatform /> },
+    ],
+  },
+
+  // Espace proprietaire plateforme
+  {
+    element: (
+      <ProtectedRoute roles={["SUPER_ADMIN"]} loginPath="/admin/login" platformOnly>
+        <PlatformLayout />
+      </ProtectedRoute>
+    ),
+    children: [
+      { path: "/plateforme", element: <AdminPlatform /> },
     ],
   },
 
