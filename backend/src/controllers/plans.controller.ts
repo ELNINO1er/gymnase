@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error } from "../utils/response.js";
+import { requireGymContext } from "../utils/access.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -20,13 +21,19 @@ const updatePlanSchema = planSchema.partial();
 export async function getPlans(req: Request, res: Response) {
   try {
     const activeOnly = req.query.active === "true";
-    const where = activeOnly ? "WHERE is_active = TRUE" : "";
+    const gymId = req.user?.gymId || Number(req.query.gym_id) || 1;
+    const whereParts = ["p.gym_id = ?"];
+    const params: any[] = [gymId];
+
+    if (activeOnly) whereParts.push("p.is_active = TRUE");
+    const where = `WHERE ${whereParts.join(" AND ")}`;
 
     const plans = await query<any[]>(
       `SELECT p.*,
-        (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.status = 'ACTIVE') as active_subscribers
+        (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.gym_id = p.gym_id AND s.status = 'ACTIVE') as active_subscribers
        FROM membership_plans p ${where}
-       ORDER BY p.price ASC`
+       ORDER BY p.price ASC`,
+      params
     );
 
     success(res, plans);
@@ -41,13 +48,14 @@ export async function getPlans(req: Request, res: Response) {
 export async function getPlanById(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = req.user?.gymId || Number(req.query.gym_id) || 1;
 
     const plans = await query<any[]>(
       `SELECT p.*,
-        (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.status = 'ACTIVE') as active_subscribers,
-        (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id) as total_subscribers
-       FROM membership_plans p WHERE p.id = ?`,
-      [id]
+        (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.gym_id = p.gym_id AND s.status = 'ACTIVE') as active_subscribers,
+        (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.gym_id = p.gym_id) as total_subscribers
+       FROM membership_plans p WHERE p.id = ? AND p.gym_id = ?`,
+      [id, gymId]
     );
 
     if (plans.length === 0) {
@@ -73,11 +81,13 @@ export async function createPlan(req: Request, res: Response) {
     }
 
     const { name, description, price, duration_days, is_active } = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const result = await query<any>(
-      `INSERT INTO membership_plans (name, description, price, duration_days, is_active)
-       VALUES (?, ?, ?, ?, ?)`,
-      [name, description || null, price, duration_days, is_active]
+      `INSERT INTO membership_plans (gym_id, name, description, price, duration_days, is_active)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [gymId, name, description || null, price, duration_days, is_active]
     );
 
     success(res, {
@@ -99,6 +109,8 @@ export async function createPlan(req: Request, res: Response) {
 export async function updatePlan(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const parsed = updatePlanSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -106,7 +118,7 @@ export async function updatePlan(req: Request, res: Response) {
       return;
     }
 
-    const existing = await query<any[]>("SELECT id FROM membership_plans WHERE id = ?", [id]);
+    const existing = await query<any[]>("SELECT id FROM membership_plans WHERE id = ? AND gym_id = ?", [id, gymId]);
     if (existing.length === 0) {
       error(res, "Plan introuvable", 404);
       return;
@@ -127,10 +139,10 @@ export async function updatePlan(req: Request, res: Response) {
       return;
     }
 
-    values.push(id);
-    await query<any>(`UPDATE membership_plans SET ${fields.join(", ")} WHERE id = ?`, values);
+    values.push(id, gymId);
+    await query<any>(`UPDATE membership_plans SET ${fields.join(", ")} WHERE id = ? AND gym_id = ?`, values);
 
-    const updated = await query<any[]>("SELECT * FROM membership_plans WHERE id = ?", [id]);
+    const updated = await query<any[]>("SELECT * FROM membership_plans WHERE id = ? AND gym_id = ?", [id, gymId]);
     success(res, updated[0]);
   } catch (err) {
     console.error("[PLANS] updatePlan error:", err);
@@ -143,15 +155,17 @@ export async function updatePlan(req: Request, res: Response) {
 export async function deletePlan(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const existing = await query<any[]>("SELECT id FROM membership_plans WHERE id = ?", [id]);
+    const existing = await query<any[]>("SELECT id FROM membership_plans WHERE id = ? AND gym_id = ?", [id, gymId]);
     if (existing.length === 0) {
       error(res, "Plan introuvable", 404);
       return;
     }
 
     // Soft delete : desactiver plutot que supprimer
-    await query<any>("UPDATE membership_plans SET is_active = FALSE WHERE id = ?", [id]);
+    await query<any>("UPDATE membership_plans SET is_active = FALSE WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     success(res, { message: "Plan desactive" });
   } catch (err) {

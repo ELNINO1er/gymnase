@@ -5,6 +5,20 @@ export function isAdminRole(role?: string) {
   return role === "ADMIN" || role === "SUPER_ADMIN";
 }
 
+export function getRequestGymId(req: Request) {
+  const gymId = req.user?.gymId;
+  return typeof gymId === "number" && Number.isInteger(gymId) && gymId > 0 ? gymId : null;
+}
+
+export function requireGymContext(req: Request, res: Response) {
+  const gymId = getRequestGymId(req);
+  if (!gymId) {
+    error(res, "Contexte salle requis", 403, ErrorCode.FORBIDDEN);
+    return null;
+  }
+  return gymId;
+}
+
 export function canAccessUserResource(req: Request, res: Response, userIdParam: string) {
   if (!req.user) {
     error(res, "Non authentifie", 401, ErrorCode.TOKEN_MISSING);

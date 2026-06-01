@@ -3,7 +3,7 @@ import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error, paginated, ErrorCode } from "../utils/response.js";
 import { logActivity } from "../services/activityLog.js";
-import { canAccessUserResource } from "../utils/access.js";
+import { canAccessUserResource, requireGymContext } from "../utils/access.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -27,9 +27,11 @@ export async function getPayments(req: Request, res: Response) {
     const userId = req.query.user_id as string || "";
     const dateFrom = req.query.date_from as string || "";
     const dateTo = req.query.date_to as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "WHERE 1=1";
-    const params: any[] = [];
+    let where = "WHERE p.gym_id = ?";
+    const params: any[] = [gymId];
 
     if (status) { where += " AND p.status = ?"; params.push(status); }
     if (method) { where += " AND p.payment_method = ?"; params.push(method); }
@@ -67,15 +69,17 @@ export async function getUserPayments(req: Request, res: Response) {
   try {
     const { userId } = req.params;
     if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const payments = await query<any[]>(
       `SELECT p.*, mp.name as plan_name
        FROM payments p
        LEFT JOIN subscriptions s ON s.id = p.subscription_id
        LEFT JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE p.user_id = ?
+       WHERE p.user_id = ? AND p.gym_id = ?
        ORDER BY p.created_at DESC`,
-      [userId]
+      [userId, gymId]
     );
 
     const totalPaid = payments.filter((p) => p.status === "PAID").reduce((sum, p) => sum + Number(p.amount), 0);
@@ -102,18 +106,20 @@ export async function createPayment(req: Request, res: Response) {
     }
 
     const { user_id, subscription_id, amount, payment_method, transaction_reference } = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     // Verifier utilisateur
-    const [user] = await query<any[]>("SELECT id, full_name FROM users WHERE id = ? AND status != 'DELETED'", [user_id]);
+    const [user] = await query<any[]>("SELECT id, full_name FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [user_id, gymId]);
     if (!user) {
       error(res, "Utilisateur introuvable", 404);
       return;
     }
 
     const result = await query<any>(
-      `INSERT INTO payments (user_id, subscription_id, amount, payment_method, status, transaction_reference)
-       VALUES (?, ?, ?, ?, 'PENDING', ?)`,
-      [user_id, subscription_id || null, amount, payment_method, transaction_reference || null]
+      `INSERT INTO payments (gym_id, user_id, subscription_id, amount, payment_method, status, transaction_reference)
+       VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`,
+      [gymId, user_id, subscription_id || null, amount, payment_method, transaction_reference || null]
     );
 
     success(res, {
@@ -137,10 +143,12 @@ export async function validatePayment(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const transaction_reference = req.body.transaction_reference as string || null;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [payment] = await query<any[]>(
-      `SELECT p.*, u.full_name FROM payments p JOIN users u ON u.id = p.user_id WHERE p.id = ?`,
-      [id]
+      `SELECT p.*, u.full_name FROM payments p JOIN users u ON u.id = p.user_id WHERE p.id = ? AND p.gym_id = ?`,
+      [id, gymId]
     );
 
     if (!payment) {
@@ -162,9 +170,8 @@ export async function validatePayment(req: Request, res: Response) {
     const updateFields = transaction_reference
       ? "status = 'PAID', paid_at = NOW(), transaction_reference = ?"
       : "status = 'PAID', paid_at = NOW()";
-    const updateParams = transaction_reference ? [transaction_reference, id] : [id];
 
-    await query<any>(`UPDATE payments SET ${updateFields} WHERE id = ?`, updateParams);
+    await query<any>(`UPDATE payments SET ${updateFields} WHERE id = ? AND gym_id = ?`, transaction_reference ? [transaction_reference, id, gymId] : [id, gymId]);
 
     // Si lie a un abonnement, activer l'abonnement
     if (payment.subscription_id) {
@@ -204,10 +211,12 @@ export async function validatePayment(req: Request, res: Response) {
 export async function cancelPayment(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [payment] = await query<any[]>(
-      "SELECT p.*, u.full_name FROM payments p JOIN users u ON u.id = p.user_id WHERE p.id = ?",
-      [id]
+      "SELECT p.*, u.full_name FROM payments p JOIN users u ON u.id = p.user_id WHERE p.id = ? AND p.gym_id = ?",
+      [id, gymId]
     );
 
     if (!payment) {
@@ -220,7 +229,7 @@ export async function cancelPayment(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE payments SET status = 'CANCELLED' WHERE id = ?", [id]);
+    await query<any>("UPDATE payments SET status = 'CANCELLED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
       `INSERT INTO notifications (user_id, title, message, type)
@@ -242,10 +251,12 @@ export async function cancelPayment(req: Request, res: Response) {
 export async function refundPayment(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [payment] = await query<any[]>(
-      "SELECT p.*, u.full_name FROM payments p JOIN users u ON u.id = p.user_id WHERE p.id = ?",
-      [id]
+      "SELECT p.*, u.full_name FROM payments p JOIN users u ON u.id = p.user_id WHERE p.id = ? AND p.gym_id = ?",
+      [id, gymId]
     );
 
     if (!payment) {
@@ -258,7 +269,7 @@ export async function refundPayment(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE payments SET status = 'REFUNDED' WHERE id = ?", [id]);
+    await query<any>("UPDATE payments SET status = 'REFUNDED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
       `INSERT INTO notifications (user_id, title, message, type)
@@ -280,26 +291,28 @@ export async function refundPayment(req: Request, res: Response) {
 export async function getDailyStats(req: Request, res: Response) {
   try {
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [paid] = await query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE DATE(paid_at) = ? AND status = 'PAID'",
-      [date]
+      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE gym_id = ? AND DATE(paid_at) = ? AND status = 'PAID'",
+      [gymId, date]
     );
     const [pending] = await query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE DATE(created_at) = ? AND status = 'PENDING'",
-      [date]
+      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE gym_id = ? AND DATE(created_at) = ? AND status = 'PENDING'",
+      [gymId, date]
     );
     const [cancelled] = await query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE DATE(created_at) = ? AND status = 'CANCELLED'",
-      [date]
+      "SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE gym_id = ? AND DATE(created_at) = ? AND status = 'CANCELLED'",
+      [gymId, date]
     );
 
     // Detail par methode de paiement
     const byMethod = await query<any[]>(
       `SELECT payment_method, COALESCE(SUM(amount), 0) as total, COUNT(*) as count
-       FROM payments WHERE DATE(paid_at) = ? AND status = 'PAID'
+       FROM payments WHERE gym_id = ? AND DATE(paid_at) = ? AND status = 'PAID'
        GROUP BY payment_method`,
-      [date]
+      [gymId, date]
     );
 
     success(res, {
@@ -321,35 +334,37 @@ export async function getMonthlyStats(req: Request, res: Response) {
   try {
     const year = Number(req.query.year) || new Date().getFullYear();
     const month = Number(req.query.month) || new Date().getMonth() + 1;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [paid] = await query<any[]>(
       `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
-       FROM payments WHERE YEAR(paid_at) = ? AND MONTH(paid_at) = ? AND status = 'PAID'`,
-      [year, month]
+       FROM payments WHERE gym_id = ? AND YEAR(paid_at) = ? AND MONTH(paid_at) = ? AND status = 'PAID'`,
+      [gymId, year, month]
     );
     const [pending] = await query<any[]>(
       `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
-       FROM payments WHERE YEAR(created_at) = ? AND MONTH(created_at) = ? AND status = 'PENDING'`,
-      [year, month]
+       FROM payments WHERE gym_id = ? AND YEAR(created_at) = ? AND MONTH(created_at) = ? AND status = 'PENDING'`,
+      [gymId, year, month]
     );
 
     // Revenus par jour du mois
     const dailyRevenue = await query<any[]>(
       `SELECT DATE(paid_at) as day, COALESCE(SUM(amount), 0) as total, COUNT(*) as count
        FROM payments
-       WHERE YEAR(paid_at) = ? AND MONTH(paid_at) = ? AND status = 'PAID'
+       WHERE gym_id = ? AND YEAR(paid_at) = ? AND MONTH(paid_at) = ? AND status = 'PAID'
        GROUP BY DATE(paid_at)
        ORDER BY day ASC`,
-      [year, month]
+      [gymId, year, month]
     );
 
     // Par methode
     const byMethod = await query<any[]>(
       `SELECT payment_method, COALESCE(SUM(amount), 0) as total, COUNT(*) as count
        FROM payments
-       WHERE YEAR(paid_at) = ? AND MONTH(paid_at) = ? AND status = 'PAID'
+       WHERE gym_id = ? AND YEAR(paid_at) = ? AND MONTH(paid_at) = ? AND status = 'PAID'
        GROUP BY payment_method`,
-      [year, month]
+      [gymId, year, month]
     );
 
     success(res, {

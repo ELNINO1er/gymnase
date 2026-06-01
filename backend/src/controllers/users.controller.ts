@@ -5,6 +5,7 @@ import { query } from "../config/database.js";
 import { success, error, paginated, ErrorCode } from "../utils/response.js";
 import { generateMemberCode } from "../utils/token.js";
 import { logActivity } from "../services/activityLog.js";
+import { requireGymContext } from "../utils/access.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -37,9 +38,11 @@ export async function getUsers(req: Request, res: Response) {
     const keyword = (req.query.keyword as string || "").trim();
     const role = req.query.role as string || "";
     const status = req.query.status as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "WHERE status != 'DELETED'";
-    const params: any[] = [];
+    let where = "WHERE gym_id = ? AND status != 'DELETED'";
+    const params: any[] = [gymId];
 
     if (keyword) {
       where += " AND (full_name LIKE ? OR email LIKE ? OR phone LIKE ? OR member_code LIKE ?)";
@@ -61,7 +64,7 @@ export async function getUsers(req: Request, res: Response) {
     const total = countResult[0].total;
 
     const users = await query<any[]>(
-      `SELECT id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at
+      `SELECT id, gym_id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at
        FROM users ${where}
        ORDER BY created_at DESC
        LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
@@ -80,11 +83,13 @@ export async function getUsers(req: Request, res: Response) {
 export async function getUserById(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const users = await query<any[]>(
-      `SELECT id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at
-       FROM users WHERE id = ? AND status != 'DELETED'`,
-      [id]
+      `SELECT id, gym_id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at
+       FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'`,
+      [id, gymId]
     );
 
     if (users.length === 0) {
@@ -99,9 +104,9 @@ export async function getUserById(req: Request, res: Response) {
       `SELECT s.id, s.start_date, s.end_date, s.status, mp.name as plan_name, mp.price as plan_price, mp.duration_days
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE s.user_id = ?
+       WHERE s.user_id = ? AND s.gym_id = ?
        ORDER BY s.created_at DESC`,
-      [id]
+      [id, gymId]
     );
 
     // Reservations recentes
@@ -109,29 +114,29 @@ export async function getUserById(req: Request, res: Response) {
       `SELECT r.id, r.reservation_date, r.start_time, r.end_time, r.status, se.name as session_name
        FROM reservations r
        JOIN sessions se ON se.id = r.session_id
-       WHERE r.user_id = ?
+       WHERE r.user_id = ? AND r.gym_id = ?
        ORDER BY r.reservation_date DESC, r.start_time DESC
        LIMIT 10`,
-      [id]
+      [id, gymId]
     );
 
     // Paiements recents
     const payments = await query<any[]>(
       `SELECT id, amount, payment_method, status, transaction_reference, paid_at, created_at
-       FROM payments WHERE user_id = ?
+       FROM payments WHERE user_id = ? AND gym_id = ?
        ORDER BY created_at DESC
        LIMIT 10`,
-      [id]
+      [id, gymId]
     );
 
     // Stats
     const [payStats] = await query<any[]>(
-      "SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE user_id = ? AND status = 'PAID'",
-      [id]
+      "SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE user_id = ? AND gym_id = ? AND status = 'PAID'",
+      [id, gymId]
     );
     const [resvStats] = await query<any[]>(
-      "SELECT COUNT(*) as total FROM reservations WHERE user_id = ? AND status NOT IN ('CANCELLED')",
-      [id]
+      "SELECT COUNT(*) as total FROM reservations WHERE user_id = ? AND gym_id = ? AND status NOT IN ('CANCELLED')",
+      [id, gymId]
     );
 
     success(res, {
@@ -161,11 +166,13 @@ export async function createUser(req: Request, res: Response) {
     }
 
     const { full_name, email, phone, password, role, status, sport_goal } = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     // Verification doublons
     const existing = await query<any[]>(
-      "SELECT id FROM users WHERE email = ? OR phone = ?",
-      [email || "_no_email_", phone]
+      "SELECT id FROM users WHERE gym_id = ? AND (email = ? OR phone = ?)",
+      [gymId, email || "_no_email_", phone]
     );
 
     if (existing.length > 0) {
@@ -177,15 +184,16 @@ export async function createUser(req: Request, res: Response) {
     const memberCode = generateMemberCode();
 
     const result = await query<any>(
-      `INSERT INTO users (full_name, email, phone, password_hash, role, status, member_code, sport_goal)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [full_name, email || null, phone, passwordHash, role, status, memberCode, sport_goal || null]
+      `INSERT INTO users (gym_id, full_name, email, phone, password_hash, role, status, member_code, sport_goal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [gymId, full_name, email || null, phone, passwordHash, role, status, memberCode, sport_goal || null]
     );
 
     await logActivity(req, { action: "CREATE", targetType: "USER", targetId: result.insertId, description: `Membre cree : ${full_name} (${role})` });
 
     success(res, {
       id: result.insertId,
+      gym_id: gymId,
       full_name,
       email,
       phone,
@@ -204,6 +212,8 @@ export async function createUser(req: Request, res: Response) {
 export async function updateUser(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const parsed = updateUserSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -212,7 +222,7 @@ export async function updateUser(req: Request, res: Response) {
     }
 
     // Verifier que l'utilisateur existe
-    const existing = await query<any[]>("SELECT id, role FROM users WHERE id = ? AND status != 'DELETED'", [id]);
+    const existing = await query<any[]>("SELECT id, role FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [id, gymId]);
     if (existing.length === 0) {
       error(res, "Utilisateur introuvable", 404);
       return;
@@ -242,8 +252,8 @@ export async function updateUser(req: Request, res: Response) {
       if (data.phone) { conditions.push("phone = ?"); dupValues.push(data.phone); }
 
       const dups = await query<any[]>(
-        `SELECT id FROM users WHERE (${conditions.join(" OR ")}) AND id != ?`,
-        [...dupValues, id]
+        `SELECT id FROM users WHERE gym_id = ? AND (${conditions.join(" OR ")}) AND id != ?`,
+        [gymId, ...dupValues, id]
       );
       if (dups.length > 0) {
         error(res, "Cet email ou ce telephone est deja utilise", 409);
@@ -252,12 +262,13 @@ export async function updateUser(req: Request, res: Response) {
     }
 
     values.push(id);
-    await query<any>(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, values);
+    values.push(gymId);
+    await query<any>(`UPDATE users SET ${fields.join(", ")} WHERE id = ? AND gym_id = ?`, values);
 
     // Retourner l'utilisateur mis a jour
     const updated = await query<any[]>(
-      "SELECT id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at FROM users WHERE id = ?",
-      [id]
+      "SELECT id, gym_id, full_name, email, phone, role, status, member_code, sport_goal, created_at, updated_at FROM users WHERE id = ? AND gym_id = ?",
+      [id, gymId]
     );
 
     success(res, updated[0]);
@@ -272,8 +283,10 @@ export async function updateUser(req: Request, res: Response) {
 export async function deleteUser(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const existing = await query<any[]>("SELECT id, role FROM users WHERE id = ? AND status != 'DELETED'", [id]);
+    const existing = await query<any[]>("SELECT id, role FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [id, gymId]);
     if (existing.length === 0) {
       error(res, "Utilisateur introuvable", 404);
       return;
@@ -285,7 +298,7 @@ export async function deleteUser(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE users SET status = 'DELETED' WHERE id = ?", [id]);
+    await query<any>("UPDATE users SET status = 'DELETED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     // Annuler abonnements et reservations actifs
     await query<any>(
@@ -311,10 +324,12 @@ export async function deleteUser(req: Request, res: Response) {
 export async function validateUser(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const users = await query<any[]>(
-      "SELECT id, full_name, status, role FROM users WHERE id = ?",
-      [id]
+      "SELECT id, full_name, status, role FROM users WHERE id = ? AND gym_id = ?",
+      [id, gymId]
     );
 
     if (users.length === 0) {
@@ -367,14 +382,16 @@ export async function validateUser(req: Request, res: Response) {
 export async function suspendUser(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const users = await query<any[]>("SELECT id, full_name, status FROM users WHERE id = ? AND status != 'DELETED'", [id]);
+    const users = await query<any[]>("SELECT id, full_name, status FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [id, gymId]);
     if (users.length === 0) {
       error(res, "Utilisateur introuvable", 404);
       return;
     }
 
-    await query<any>("UPDATE users SET status = 'SUSPENDED' WHERE id = ?", [id]);
+    await query<any>("UPDATE users SET status = 'SUSPENDED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     // Notification
     await query<any>(
@@ -397,8 +414,10 @@ export async function suspendUser(req: Request, res: Response) {
 export async function reactivateUser(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const users = await query<any[]>("SELECT id, full_name, status FROM users WHERE id = ?", [id]);
+    const users = await query<any[]>("SELECT id, full_name, status FROM users WHERE id = ? AND gym_id = ?", [id, gymId]);
     if (users.length === 0) {
       error(res, "Utilisateur introuvable", 404);
       return;
@@ -409,7 +428,7 @@ export async function reactivateUser(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE users SET status = 'ACTIVE' WHERE id = ?", [id]);
+    await query<any>("UPDATE users SET status = 'ACTIVE' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
       `INSERT INTO notifications (user_id, title, message, type)
@@ -431,6 +450,8 @@ export async function reactivateUser(req: Request, res: Response) {
 export async function searchUsers(req: Request, res: Response) {
   try {
     const keyword = (req.query.keyword as string || "").trim();
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     if (!keyword || keyword.length < 2) {
       error(res, "Mot-cle de recherche requis (min 2 caracteres)");
@@ -441,11 +462,12 @@ export async function searchUsers(req: Request, res: Response) {
     const users = await query<any[]>(
       `SELECT id, full_name, email, phone, role, status, member_code
        FROM users
-       WHERE status != 'DELETED'
+       WHERE gym_id = ?
+         AND status != 'DELETED'
          AND (full_name LIKE ? OR email LIKE ? OR phone LIKE ? OR member_code LIKE ?)
        ORDER BY full_name ASC
        LIMIT 20`,
-      [kw, kw, kw, kw]
+      [gymId, kw, kw, kw, kw]
     );
 
     success(res, users);
@@ -459,22 +481,27 @@ export async function searchUsers(req: Request, res: Response) {
 
 export async function getUserStats(req: Request, res: Response) {
   try {
-    const [total] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE status != 'DELETED'");
-    const [active] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE status = 'ACTIVE'");
-    const [pending] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE status = 'PENDING'");
-    const [suspended] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE status = 'SUSPENDED'");
-    const [expired] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE status = 'EXPIRED'");
-    const [members] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE'");
-    const [visitors] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE role = 'VISITOR'");
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+    const [total] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND status != 'DELETED'", [gymId]);
+    const [active] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND status = 'ACTIVE'", [gymId]);
+    const [pending] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND status = 'PENDING'", [gymId]);
+    const [suspended] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND status = 'SUSPENDED'", [gymId]);
+    const [expired] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND status = 'EXPIRED'", [gymId]);
+    const [members] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND role = 'MEMBER' AND status = 'ACTIVE'", [gymId]);
+    const [visitors] = await query<any[]>("SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND role = 'VISITOR'", [gymId]);
 
     const [newToday] = await query<any[]>(
-      "SELECT COUNT(*) as count FROM users WHERE DATE(created_at) = CURDATE() AND status != 'DELETED'"
+      "SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND DATE(created_at) = CURDATE() AND status != 'DELETED'",
+      [gymId]
     );
     const [newThisWeek] = await query<any[]>(
-      "SELECT COUNT(*) as count FROM users WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status != 'DELETED'"
+      "SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status != 'DELETED'",
+      [gymId]
     );
     const [newThisMonth] = await query<any[]>(
-      "SELECT COUNT(*) as count FROM users WHERE MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) AND status != 'DELETED'"
+      "SELECT COUNT(*) as count FROM users WHERE gym_id = ? AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) AND status != 'DELETED'",
+      [gymId]
     );
 
     success(res, {

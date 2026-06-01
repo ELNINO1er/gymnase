@@ -14,6 +14,7 @@ const registerSchema = z.object({
   password: z.string().min(6, "Mot de passe requis (min 6 caracteres)").max(100),
   sport_goal: z.string().max(255).optional().nullable(),
   plan_id: z.number().int().positive().optional().nullable(),
+  gym_id: z.number().int().positive().optional().nullable(),
 });
 
 const loginSchema = z.object({
@@ -45,10 +46,20 @@ export async function register(req: Request, res: Response) {
 
     const { full_name, email, phone, password, sport_goal, plan_id } = parsed.data;
 
+    let gymId = parsed.data.gym_id || null;
+    if (!gymId && plan_id) {
+      const plans = await query<any[]>("SELECT gym_id FROM membership_plans WHERE id = ? AND is_active = TRUE", [plan_id]);
+      gymId = plans[0]?.gym_id || null;
+    }
+    if (!gymId) {
+      const gyms = await query<any[]>("SELECT id FROM gyms WHERE status = 'ACTIVE' ORDER BY id ASC LIMIT 1");
+      gymId = gyms[0]?.id || 1;
+    }
+
     // Verification doublons
     const existing = await query<any[]>(
-      "SELECT id FROM users WHERE email = ? OR phone = ?",
-      [email || "_no_email_", phone]
+      "SELECT id FROM users WHERE gym_id = ? AND (email = ? OR phone = ?)",
+      [gymId, email || "_no_email_", phone]
     );
 
     if (existing.length > 0) {
@@ -61,9 +72,9 @@ export async function register(req: Request, res: Response) {
 
     // Creer l'utilisateur avec statut PENDING
     const result = await query<any>(
-      `INSERT INTO users (full_name, email, phone, password_hash, role, status, member_code, sport_goal)
-       VALUES (?, ?, ?, ?, 'VISITOR', 'PENDING', ?, ?)`,
-      [full_name, email || null, phone, passwordHash, memberCode, sport_goal || null]
+      `INSERT INTO users (gym_id, full_name, email, phone, password_hash, role, status, member_code, sport_goal)
+       VALUES (?, ?, ?, ?, ?, 'VISITOR', 'PENDING', ?, ?)`,
+      [gymId, full_name, email || null, phone, passwordHash, memberCode, sport_goal || null]
     );
 
     const userId = result.insertId;
@@ -79,27 +90,27 @@ export async function register(req: Request, res: Response) {
 
         // Creer souscription PENDING
         const subResult = await query<any>(
-          `INSERT INTO subscriptions (user_id, plan_id, start_date, end_date, status)
-           VALUES (?, ?, ?, ?, 'PENDING')`,
-          [userId, plan_id, startDate, endDate]
+        `INSERT INTO subscriptions (gym_id, user_id, plan_id, start_date, end_date, status)
+           VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+          [gymId, userId, plan_id, startDate, endDate]
         );
 
         // Creer paiement PENDING
         await query<any>(
-          `INSERT INTO payments (user_id, subscription_id, amount, payment_method, status)
-           VALUES (?, ?, ?, 'CASH', 'PENDING')`,
-          [userId, subResult.insertId, plan.price]
+          `INSERT INTO payments (gym_id, user_id, subscription_id, amount, payment_method, status)
+           VALUES (?, ?, ?, ?, 'CASH', 'PENDING')`,
+          [gymId, userId, subResult.insertId, plan.price]
         );
       }
     }
 
     // Notification pour l'admin
-    const admins = await query<any[]>("SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'");
+    const admins = await query<any[]>("SELECT id FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'", [gymId]);
     for (const admin of admins) {
       await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type)
-         VALUES (?, ?, ?, 'SUBSCRIPTION')`,
-        [admin.id, "Nouvelle inscription", `${full_name} vient de s'inscrire et attend votre validation.`]
+        `INSERT INTO notifications (gym_id, user_id, title, message, type)
+         VALUES (?, ?, ?, ?, 'SUBSCRIPTION')`,
+        [gymId, admin.id, "Nouvelle inscription", `${full_name} vient de s'inscrire et attend votre validation.`]
       );
     }
 
