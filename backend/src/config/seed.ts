@@ -10,11 +10,18 @@ async function seed() {
   try {
     await connection.query(`USE \`${env.db.name}\``);
 
-    // Admin par defaut
+    // Admin de demonstration
     const passwordHash = await bcrypt.hash("admin123", 12);
     await connection.query(`
-      INSERT IGNORE INTO users (full_name, email, phone, password_hash, role, status, member_code)
+      INSERT INTO users (full_name, email, phone, password_hash, role, status, member_code)
       VALUES ('Administrateur', 'admin@elitegym.com', '+221770000000', ?, 'ADMIN', 'ACTIVE', 'ADMIN001')
+      ON DUPLICATE KEY UPDATE
+        full_name = VALUES(full_name),
+        phone = VALUES(phone),
+        password_hash = VALUES(password_hash),
+        role = VALUES(role),
+        status = VALUES(status),
+        member_code = VALUES(member_code)
     `, [passwordHash]);
 
     // Plans d'abonnement
@@ -27,6 +34,40 @@ async function seed() {
       (5, 'Pack 10 seances', '10 seances a utiliser librement', 25000.00, 90, TRUE),
       (6, 'VIP', 'Acces VIP illimite + coaching', 50000.00, 30, TRUE)
     `);
+
+    // Membre de demonstration
+    const memberPasswordHash = await bcrypt.hash("test123", 12);
+    await connection.query(`
+      INSERT IGNORE INTO users (full_name, email, phone, password_hash, role, status, member_code, sport_goal)
+      VALUES ('Moussa Demo', 'moussa@test.com', '+221771111111', ?, 'MEMBER', 'ACTIVE', 'MBR001', 'Remise en forme')
+    `, [memberPasswordHash]);
+
+    const [demoMembers] = await connection.query<any[]>(
+      "SELECT id FROM users WHERE email = 'moussa@test.com' LIMIT 1"
+    );
+
+    if (demoMembers.length > 0) {
+      const memberId = demoMembers[0].id;
+      const startDate = new Date().toISOString().split("T")[0];
+      const endDate = new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+
+      await connection.query(`
+        INSERT IGNORE INTO subscriptions (user_id, plan_id, start_date, end_date, status)
+        VALUES (?, 2, ?, ?, 'ACTIVE')
+      `, [memberId, startDate, endDate]);
+
+      const [subscriptions] = await connection.query<any[]>(
+        "SELECT id FROM subscriptions WHERE user_id = ? AND plan_id = 2 AND status = 'ACTIVE' LIMIT 1",
+        [memberId]
+      );
+
+      if (subscriptions.length > 0) {
+        await connection.query(`
+          INSERT IGNORE INTO payments (user_id, subscription_id, amount, payment_method, status, transaction_reference, paid_at)
+          VALUES (?, ?, 25000.00, 'WAVE', 'PAID', 'DEMO-MEMBER-001', NOW())
+        `, [memberId, subscriptions[0].id]);
+      }
+    }
 
     // Types de seances
     await connection.query(`

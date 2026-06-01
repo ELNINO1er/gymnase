@@ -20,7 +20,20 @@ app.use(helmet());
 app.use(cors({
   origin: env.nodeEnv === "production"
     ? env.frontendUrl
-    : [env.frontendUrl, "http://localhost:5173", "http://127.0.0.1:5173"],
+    : (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+
+        const allowed = [
+          env.frontendUrl,
+          "http://localhost:5173",
+          "http://127.0.0.1:5173",
+        ];
+        const isLocalNetwork = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+):5173$/.test(origin);
+        callback(null, allowed.includes(origin) || isLocalNetwork);
+      },
   credentials: true,
 }));
 

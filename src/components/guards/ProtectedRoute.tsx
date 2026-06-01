@@ -5,9 +5,10 @@ import { Dumbbell } from "lucide-react";
 interface ProtectedRouteProps {
   children: React.ReactNode;
   roles?: UserRole[];
+  loginPath?: string;
 }
 
-export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
+export function ProtectedRoute({ children, roles, loginPath = "/login" }: ProtectedRouteProps) {
   const { isAuthenticated, user, loading } = useAuth();
   const location = useLocation();
 
@@ -22,7 +23,7 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to={loginPath} state={{ from: location }} replace />;
   }
 
   if (roles && user && !roles.includes(user.role)) {
