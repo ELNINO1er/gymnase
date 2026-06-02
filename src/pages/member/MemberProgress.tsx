@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Plus, TrendingUp, Trash2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
-import { progressApi } from "../../services/api";
+import { progressApi, reservationsApi } from "../../services/api";
 import { useConfirm } from "../../components/ui";
 
 export function MemberProgress() {
   const { user } = useAuth();
   const [entries, setEntries] = useState<any[]>([]);
+  const [sessionStats, setSessionStats] = useState({ completed: 0, total: 0, thisMonth: 0 });
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ weight: "", height: "", body_fat: "", muscle_mass: "", goal: "", notes: "", recorded_at: new Date().toISOString().split("T")[0] });
@@ -18,8 +19,16 @@ export function MemberProgress() {
   const loadData = async () => {
     if (!user) return;
     try {
-      const { data } = await progressApi.getUserProgress(user.id);
-      setEntries(data.data);
+      const [progressRes, reservRes] = await Promise.all([
+        progressApi.getUserProgress(user.id),
+        reservationsApi.getUserReservations(user.id, false).catch(() => ({ data: { data: [] } })),
+      ]);
+      setEntries(progressRes.data.data || []);
+      const allRes = reservRes.data.data || [];
+      const completed = allRes.filter((r: any) => r.status === "COMPLETED").length;
+      const now = new Date();
+      const thisMonth = allRes.filter((r: any) => r.status === "COMPLETED" && new Date(r.reservation_date).getMonth() === now.getMonth() && new Date(r.reservation_date).getFullYear() === now.getFullYear()).length;
+      setSessionStats({ completed, total: allRes.length, thisMonth });
     } catch {}
     setLoading(false);
   };
@@ -114,6 +123,22 @@ export function MemberProgress() {
           </button>
         </div>
       )}
+
+      {/* Stats seances */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
+          <div className="text-2xl font-black text-amber-400">{sessionStats.completed}</div>
+          <div className="text-xs text-zinc-400 mt-1">Seances terminees</div>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
+          <div className="text-2xl font-black text-emerald-400">{sessionStats.thisMonth}</div>
+          <div className="text-xs text-zinc-400 mt-1">Ce mois-ci</div>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
+          <div className="text-2xl font-black">{sessionStats.total}</div>
+          <div className="text-xs text-zinc-400 mt-1">Total reservations</div>
+        </div>
+      </div>
 
       {entries.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-10 text-center">

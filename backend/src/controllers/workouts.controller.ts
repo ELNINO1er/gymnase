@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error, paginated, ErrorCode } from "../utils/response.js";
+import { canAccessUserResource, isAdminRole, requireGymContext } from "../utils/access.js";
 
 const exerciseSchema = z.object({
   day_number: z.number().int().min(1).default(1),
@@ -27,13 +28,16 @@ const planSchema = z.object({
 // GET /api/workouts — Tous les plans (admin/coach)
 export async function getPlans(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
     const offset = (page - 1) * limit;
     const userId = req.query.user_id as string || "";
 
-    let where = "WHERE 1=1";
-    const params: any[] = [];
+    let where = "WHERE wp.gym_id = ?";
+    const params: any[] = [gymId];
     if (userId) { where += " AND wp.user_id = ?"; params.push(userId); }
 
     // Si coach, seulement ses plans
@@ -67,15 +71,18 @@ export async function getPlans(req: Request, res: Response) {
 export async function getUserPlans(req: Request, res: Response) {
   try {
     const { userId } = req.params;
+    if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const plans = await query<any[]>(
       `SELECT wp.*, c.full_name as coach_name,
               (SELECT COUNT(*) FROM workout_exercises we WHERE we.plan_id = wp.id) as exercise_count
        FROM workout_plans wp
        LEFT JOIN users c ON c.id = wp.coach_id
-       WHERE wp.user_id = ?
+       WHERE wp.user_id = ? AND wp.gym_id = ?
        ORDER BY wp.created_at DESC`,
-      [userId]
+      [userId, gymId]
     );
 
     success(res, plans);
@@ -89,18 +96,25 @@ export async function getUserPlans(req: Request, res: Response) {
 export async function getPlanDetail(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [plan] = await query<any[]>(
       `SELECT wp.*, u.full_name as member_name, c.full_name as coach_name
        FROM workout_plans wp
        JOIN users u ON u.id = wp.user_id
        LEFT JOIN users c ON c.id = wp.coach_id
-       WHERE wp.id = ?`,
-      [id]
+       WHERE wp.id = ? AND wp.gym_id = ?`,
+      [id, gymId]
     );
 
     if (!plan) {
       error(res, "Programme introuvable", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
+
+    if (!isAdminRole(req.user?.role) && req.user?.role !== "COACH" && req.user?.userId !== Number(plan.user_id)) {
+      error(res, "Acces refuse", 403, ErrorCode.FORBIDDEN);
       return;
     }
 
@@ -119,6 +133,9 @@ export async function getPlanDetail(req: Request, res: Response) {
 // POST /api/workouts — Creer un plan + exercices
 export async function createPlan(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const parsed = planSchema.safeParse(req.body);
     if (!parsed.success) {
       error(res, parsed.error.errors.map((e) => e.message).join(", "), 400, ErrorCode.VALIDATION_ERROR);
@@ -128,10 +145,19 @@ export async function createPlan(req: Request, res: Response) {
     const d = parsed.data;
     const coachId = req.user!.userId;
 
+    const [member] = await query<any[]>(
+      "SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'",
+      [d.user_id, gymId]
+    );
+    if (!member) {
+      error(res, "Membre introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
+
     const result = await query<any>(
-      `INSERT INTO workout_plans (user_id, coach_id, title, description, start_date, end_date)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [d.user_id, coachId, d.title, d.description || null, d.start_date || null, d.end_date || null]
+      `INSERT INTO workout_plans (gym_id, user_id, coach_id, title, description, start_date, end_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [gymId, d.user_id, coachId, d.title, d.description || null, d.start_date || null, d.end_date || null]
     );
 
     const planId = result.insertId;
@@ -157,6 +183,9 @@ export async function createPlan(req: Request, res: Response) {
 // PUT /api/workouts/:id/status — Changer statut
 export async function updatePlanStatus(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const { id } = req.params;
     const { status: newStatus } = req.body;
 
@@ -165,7 +194,11 @@ export async function updatePlanStatus(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE workout_plans SET status = ? WHERE id = ?", [newStatus, id]);
+    const result = await query<any>("UPDATE workout_plans SET status = ? WHERE id = ? AND gym_id = ?", [newStatus, id, gymId]);
+    if (result.affectedRows === 0) {
+      error(res, "Programme introuvable", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
     success(res, null, 200, "Statut mis a jour");
   } catch (err) {
     console.error("[WORKOUTS] updatePlanStatus error:", err);
@@ -176,8 +209,15 @@ export async function updatePlanStatus(req: Request, res: Response) {
 // DELETE /api/workouts/:id
 export async function deletePlan(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const { id } = req.params;
-    await query<any>("DELETE FROM workout_plans WHERE id = ?", [id]);
+    const result = await query<any>("DELETE FROM workout_plans WHERE id = ? AND gym_id = ?", [id, gymId]);
+    if (result.affectedRows === 0) {
+      error(res, "Programme introuvable", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
     success(res, null, 200, "Programme supprime");
   } catch (err) {
     console.error("[WORKOUTS] deletePlan error:", err);

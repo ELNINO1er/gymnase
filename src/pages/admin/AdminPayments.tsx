@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { paymentsApi } from "../../services/api";
-import { Check, X, RotateCcw } from "lucide-react";
+import { paymentsApi, usersApi } from "../../services/api";
+import { Check, Plus, RotateCcw, X } from "lucide-react";
 import { useConfirm, Select } from "../../components/ui";
 
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n) + " FCFA";
@@ -23,10 +23,15 @@ const METHOD_OPTIONS = [
   { value: "BANK_TRANSFER", label: "Virement bancaire" },
 ];
 
+const CREATE_METHOD_OPTIONS = METHOD_OPTIONS.filter((option) => option.value);
+
 export function AdminPayments() {
   const [payments, setPayments] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
   const [filters, setFilters] = useState({ status: "", method: "", date_from: "", date_to: "" });
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ user_id: "", amount: "", payment_method: "WAVE", transaction_reference: "" });
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
   const { confirm, dialog } = useConfirm();
@@ -34,14 +39,46 @@ export function AdminPayments() {
   const loadData = async (page = 1) => {
     setLoading(true);
     try {
-      const { data } = await paymentsApi.getAll({ page, ...filters });
-      setPayments(data.data);
-      setPagination(data.pagination);
+      const [paymentsRes, membersRes] = await Promise.all([
+        paymentsApi.getAll({ page, ...filters }),
+        usersApi.getAll({ page: 1, limit: 200, role: "MEMBER", status: "ACTIVE" }),
+      ]);
+      setPayments(paymentsRes.data.data);
+      setPagination(paymentsRes.data.pagination);
+      setMembers(membersRes.data.data || []);
     } catch {}
     setLoading(false);
   };
 
   useEffect(() => { loadData(); }, []);
+
+  const memberOptions = members.map((member) => ({
+    value: String(member.id),
+    label: `${member.full_name}${member.member_code ? ` - ${member.member_code}` : ""}`,
+  }));
+
+  const handleCreatePayment = async () => {
+    const amount = Number(createForm.amount);
+    if (!createForm.user_id || !amount || amount <= 0) {
+      setMessage({ type: "error", text: "Selectionnez un membre et saisissez un montant valide" });
+      return;
+    }
+
+    try {
+      await paymentsApi.create({
+        user_id: Number(createForm.user_id),
+        amount,
+        payment_method: createForm.payment_method,
+        transaction_reference: createForm.transaction_reference || undefined,
+      });
+      setMessage({ type: "success", text: "Paiement enregistre. Validez-le apres verification du depot." });
+      setCreateForm({ user_id: "", amount: "", payment_method: "WAVE", transaction_reference: "" });
+      setShowCreate(false);
+      loadData(1);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.response?.data?.message || err.response?.data?.error || "Erreur" });
+    }
+  };
 
   const handleAction = (action: string, id: number, userName: string, amount: string) => {
     const configs: Record<string, { title: string; msg: string; variant: "success" | "warning" | "danger"; label: string }> = {
@@ -69,11 +106,68 @@ export function AdminPayments() {
   return (
     <div>
       {dialog}
-      <h1 className="text-2xl font-bold mb-6">Gestion des paiements</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Gestion des paiements</h1>
+        <button onClick={() => setShowCreate(!showCreate)} className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm">
+          <Plus size={16} /> Paiement manuel
+        </button>
+      </div>
 
       {message.text && (
         <div className={`rounded-xl p-3 mb-4 text-sm ${message.type === "success" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
           {message.text}
+        </div>
+      )}
+
+      {showCreate && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
+          <h3 className="font-bold mb-4">Enregistrer un depot</h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Membre *</label>
+              <Select
+                value={createForm.user_id}
+                onChange={(value) => setCreateForm({ ...createForm, user_id: value })}
+                options={memberOptions}
+                placeholder={memberOptions.length ? "Choisir un membre" : "Aucun membre actif"}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Montant *</label>
+              <input
+                type="number"
+                min="1"
+                value={createForm.amount}
+                onChange={(e) => setCreateForm({ ...createForm, amount: e.target.value })}
+                placeholder="Ex: 15000"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Methode</label>
+              <Select
+                value={createForm.payment_method}
+                onChange={(value) => setCreateForm({ ...createForm, payment_method: value })}
+                options={CREATE_METHOD_OPTIONS}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Reference transaction</label>
+              <input
+                value={createForm.transaction_reference}
+                onChange={(e) => setCreateForm({ ...createForm, transaction_reference: e.target.value })}
+                placeholder="Reference Wave, cash, virement..."
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="text-xs text-zinc-500 mt-3">
+            Le paiement sera cree en attente. Utilisez ensuite le bouton de validation apres controle du depot.
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button onClick={handleCreatePayment} className="bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-5 py-2.5 rounded-lg text-sm">Enregistrer</button>
+            <button onClick={() => setShowCreate(false)} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-5 py-2.5 rounded-lg text-sm">Annuler</button>
+          </div>
         </div>
       )}
 

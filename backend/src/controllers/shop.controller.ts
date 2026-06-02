@@ -117,9 +117,11 @@ export async function createSale(req: Request, res: Response) {
     const { user_id, payment_method, items, notes } = parsed.data;
     const gymId = requireGymContext(req, res);
     if (!gymId) return;
+    const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(req.user!.role);
+    const buyerId = isAdmin ? user_id : req.user!.userId;
 
-    if (user_id) {
-      const [buyer] = await query<any[]>("SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [user_id, gymId]);
+    if (buyerId) {
+      const [buyer] = await query<any[]>("SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [buyerId, gymId]);
       if (!buyer) {
         error(res, "Acheteur introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
         return;
@@ -147,7 +149,7 @@ export async function createSale(req: Request, res: Response) {
     // Creer la vente
     const saleResult = await query<any>(
       "INSERT INTO sales (gym_id, user_id, total_amount, payment_method, status, notes) VALUES (?,?,?,?,'PAID',?)",
-      [gymId, user_id || null, totalAmount, payment_method, notes || null]
+      [gymId, buyerId || null, totalAmount, payment_method, notes || null]
     );
 
     // Creer les lignes + decrémenter stock

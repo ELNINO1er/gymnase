@@ -10,8 +10,11 @@ router.get("/inbox", getInbox);
 router.get("/unread-count", getUnreadCount);
 router.put("/:id/read", markMessageRead);
 
-// Admin
+// Admin : historique d'envoi
 router.get("/sent", roleGuard("ADMIN", "SUPER_ADMIN"), getSent);
-router.post("/send", roleGuard("ADMIN", "SUPER_ADMIN"), sendMessage);
+
+// Membre + admin : envoyer/repondre.
+// Le controleur limite les membres aux messages prives vers les admins de leur salle.
+router.post("/send", sendMessage);
 
 export default router;

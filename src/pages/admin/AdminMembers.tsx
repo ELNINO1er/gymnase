@@ -8,6 +8,7 @@ const ROLE_OPTIONS = [
   { value: "", label: "Tous roles" },
   { value: "MEMBER", label: "Membre" },
   { value: "VISITOR", label: "Visiteur" },
+  { value: "COACH", label: "Coach" },
   { value: "ADMIN", label: "Admin" },
 ];
 
@@ -76,7 +77,8 @@ export function AdminMembers() {
     }
     try {
       await usersApi.create(createForm);
-      setMessage({ type: "success", text: `${createForm.role === "COACH" ? "Coach" : "Membre"} cree` });
+      const roleLabel = createForm.role === "ADMIN" ? "Admin" : createForm.role === "COACH" ? "Coach" : "Membre";
+      setMessage({ type: "success", text: `${roleLabel} cree` });
       setShowCreate(false);
       setCreateForm({ full_name: "", phone: "", email: "", password: "", role: "MEMBER", status: "ACTIVE" });
       loadUsers(1);
@@ -91,7 +93,7 @@ export function AdminMembers() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Gestion des membres</h1>
         <button onClick={() => setShowCreate(!showCreate)} className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-4 py-2 rounded-lg text-sm">
-          <UserCheck size={16} /> Creer un membre / coach
+          <UserCheck size={16} /> Creer un utilisateur
         </button>
       </div>
 
@@ -104,7 +106,8 @@ export function AdminMembers() {
       {/* Formulaire creation */}
       {showCreate && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
-          <h3 className="font-bold mb-4">Nouveau membre ou coach</h3>
+          <h3 className="font-bold mb-1">Nouvel utilisateur</h3>
+          <p className="text-xs text-zinc-500 mb-4">Choisissez le role : membre, coach ou admin de cette salle.</p>
           <div className="grid sm:grid-cols-2 gap-3">
             <div><label className="block text-xs text-zinc-400 mb-1">Nom complet *</label>
               <input value={createForm.full_name} onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })} placeholder="Nom complet"

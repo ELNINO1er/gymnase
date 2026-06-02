@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Award, Calendar, CreditCard, Dumbbell, FileText, Gift, Home, LogOut, Mail, QrCode, TrendingUp, User } from "lucide-react";
+import { Award, Calendar, CreditCard, Dumbbell, FileText, Gift, Home, LogOut, Mail, QrCode, ShoppingBag, TrendingUp, User } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
 const NAV_ITEMS = [
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { path: "/membre/programmes", label: "Programmes", icon: Dumbbell },
   { path: "/membre/progression", label: "Progression", icon: TrendingUp },
   { path: "/membre/badges", label: "Badges", icon: Award },
+  { path: "/membre/boutique", label: "Boutique", icon: ShoppingBag },
   { path: "/membre/parrainage", label: "Parrainage", icon: Gift },
   { path: "/membre/messages", label: "Messages", icon: Mail },
   { path: "/membre/factures", label: "Factures", icon: FileText },

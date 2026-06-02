@@ -7,14 +7,18 @@ const router = Router();
 // Public : voir les produits
 router.get("/products", getProducts);
 
-// Admin
 router.use(authGuard);
+
+// Membre + admin : achat boutique.
+// Le controleur force l'acheteur au membre connecte sauf pour les admins.
+router.post("/sales", createSale);
+
+// Admin
 router.use(roleGuard("ADMIN", "SUPER_ADMIN"));
 
 router.post("/products", createProduct);
 router.put("/products/:id", updateProduct);
 router.delete("/products/:id", deleteProduct);
-router.post("/sales", createSale);
 router.get("/sales", getSales);
 router.get("/sales/stats", getSaleStats);
 

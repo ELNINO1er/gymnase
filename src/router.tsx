@@ -26,6 +26,7 @@ import { MemberBadges } from "./pages/member/MemberBadges";
 import { MemberReferral } from "./pages/member/MemberReferral";
 import { MemberMessages } from "./pages/member/MemberMessages";
 import { MemberInvoices } from "./pages/member/MemberInvoices";
+import { MemberShop } from "./pages/member/MemberShop";
 
 // Pages admin
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
@@ -91,6 +92,7 @@ export const router = createBrowserRouter([
       { path: "/membre/progression", element: <MemberProgress /> },
       { path: "/membre/programmes", element: <MemberWorkouts /> },
       { path: "/membre/badges", element: <MemberBadges /> },
+      { path: "/membre/boutique", element: <MemberShop /> },
       { path: "/membre/parrainage", element: <MemberReferral /> },
       { path: "/membre/messages", element: <MemberMessages /> },
       { path: "/membre/factures", element: <MemberInvoices /> },

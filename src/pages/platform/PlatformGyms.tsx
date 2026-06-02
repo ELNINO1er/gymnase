@@ -37,6 +37,7 @@ export function PlatformGyms() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [saving, setSaving] = useState(false);
+  const [lastAdminLogin, setLastAdminLogin] = useState<{ gym: string; email: string; password: string } | null>(null);
   const [form, setForm] = useState({
     name: "", owner_name: "", owner_email: "", owner_phone: "", owner_password: "", city: "", country: "",
   });
@@ -58,7 +59,16 @@ export function PlatformGyms() {
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      await platformApi.createGym({ ...form, status: "PENDING" });
+      const created = await platformApi.createGym({ ...form, status: "PENDING" });
+      if (form.owner_email && form.owner_password) {
+        setLastAdminLogin({
+          gym: created.data.data?.name || form.name,
+          email: form.owner_email,
+          password: form.owner_password,
+        });
+      } else {
+        setLastAdminLogin(null);
+      }
       setForm({ name: "", owner_name: "", owner_email: "", owner_phone: "", owner_password: "", city: "", country: "" });
       await load();
     } finally {
@@ -95,6 +105,15 @@ export function PlatformGyms() {
         <button disabled={saving} className="px-4 py-2 rounded-lg bg-amber-400 text-zinc-950 font-bold disabled:opacity-60">
           {saving ? "Creation..." : "Creer la salle"}
         </button>
+        {lastAdminLogin && (
+          <div className="bg-zinc-950 border border-amber-400/30 rounded-lg p-4 text-sm">
+            <div className="font-bold text-amber-300">Connexion admin creee pour {lastAdminLogin.gym}</div>
+            <div className="text-zinc-400 mt-1">
+              L'admin se connecte sur <span className="text-zinc-100 font-mono">/admin/login</span> avec
+              <span className="text-zinc-100 font-mono"> {lastAdminLogin.email}</span> et le mot de passe defini.
+            </div>
+          </div>
+        )}
       </form>
 
       <div className="flex gap-2 overflow-x-auto pb-1">

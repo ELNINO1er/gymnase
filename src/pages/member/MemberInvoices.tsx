@@ -32,12 +32,14 @@ export function MemberInvoices() {
   async function viewPdf(id: number) {
     try {
       const { data } = await invoicesApi.getPdf(id);
-      const invoice = data.data;
-      // Open in new window as printable view
+      const d = data.data;
+      const inv = d.invoice || d;
+      const member = d.member || {};
+      const gym = d.gym || {};
       const w = window.open("", "_blank");
       if (!w) return;
       w.document.write(`
-        <html><head><title>Facture ${invoice.invoice_number}</title>
+        <html><head><title>Facture ${inv.number || inv.invoice_number}</title>
         <style>body{font-family:system-ui;max-width:700px;margin:40px auto;padding:20px;color:#333}
         h1{font-size:24px;margin:0}h2{font-size:16px;color:#666;margin:4px 0 20px}
         table{width:100%;border-collapse:collapse;margin:20px 0}td,th{padding:8px;text-align:left;border-bottom:1px solid #eee}
@@ -45,16 +47,22 @@ export function MemberInvoices() {
         .footer{margin-top:40px;color:#999;font-size:12px;text-align:center}
         @media print{body{margin:0}}</style></head><body>
         <h1>FACTURE</h1>
-        <h2>${invoice.invoice_number}</h2>
-        <p><strong>Salle :</strong> ${invoice.gym_name || "Elite Gym"}</p>
-        <p><strong>Membre :</strong> ${invoice.member_name || "-"}</p>
-        <p><strong>Email :</strong> ${invoice.member_email || "-"}</p>
-        <p><strong>Date :</strong> ${new Date(invoice.created_at).toLocaleDateString()}</p>
+        <h2>${inv.number || inv.invoice_number || ""}</h2>
+        <p><strong>Salle :</strong> ${gym.name || "Elite Gym"}</p>
+        ${gym.address ? `<p>${gym.address}</p>` : ""}
+        ${gym.phone ? `<p>Tel : ${gym.phone}</p>` : ""}
+        <hr style="margin:20px 0;border:none;border-top:1px solid #eee"/>
+        <p><strong>Membre :</strong> ${member.full_name || "-"}</p>
+        <p><strong>Email :</strong> ${member.email || "-"}</p>
+        <p><strong>Tel :</strong> ${member.phone || "-"}</p>
+        <p><strong>Code :</strong> ${member.member_code || "-"}</p>
+        <p><strong>Date :</strong> ${inv.date ? new Date(inv.date).toLocaleDateString("fr-FR") : "-"}</p>
         <table><tr><th>Description</th><th>Montant</th></tr>
-        <tr><td>${invoice.label}</td><td>${Number(invoice.amount).toLocaleString()} FCFA</td></tr></table>
-        <div class="total">Total : ${Number(invoice.amount).toLocaleString()} FCFA</div>
-        <p>Methode : ${invoice.payment_method || "-"}</p>
-        <p>Statut : ${invoice.status}</p>
+        <tr><td>${inv.label || "Paiement"}</td><td>${Number(inv.amount || 0).toLocaleString()} ${gym.currency || "FCFA"}</td></tr></table>
+        <div class="total">Total : ${Number(inv.amount || 0).toLocaleString()} ${gym.currency || "FCFA"}</div>
+        <p>Methode : ${inv.payment_method || "-"}</p>
+        <p>Statut : ${inv.status || "-"}</p>
+        ${inv.transaction_reference ? `<p>Ref : ${inv.transaction_reference}</p>` : ""}
         <div class="footer">Merci de votre confiance.</div>
         </body></html>
       `);

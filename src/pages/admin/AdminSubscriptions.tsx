@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { subscriptionsApi } from "../../services/api";
+import { plansApi, subscriptionsApi, usersApi } from "../../services/api";
 import { Check, X, RefreshCw, Plus } from "lucide-react";
 import { useConfirm, Select } from "../../components/ui";
 
@@ -21,24 +21,39 @@ export function AdminSubscriptions() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState({ type: "", text: "" });
   const { confirm, dialog } = useConfirm();
+  const [members, setMembers] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ user_id: "", plan_id: "", payment_method: "CASH", auto_activate: false });
+  const [createForm, setCreateForm] = useState({ user_id: "", plan_id: "", payment_method: "WAVE", auto_activate: true });
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    loadCreateOptions();
+  }, []);
+
   const load = (page = 1) => {
     subscriptionsApi.getAll({ page, status: filterStatus || undefined }).then(({ data }) => {
       setSubs(data.data); setPagination(data.pagination); setLoading(false);
     }).catch(() => setLoading(false));
   };
 
+  const loadCreateOptions = async () => {
+    const [memberRes, planRes] = await Promise.all([
+      usersApi.getAll({ page: 1, limit: 100, role: "MEMBER", status: "ACTIVE" }).catch(() => ({ data: { data: [] } })),
+      plansApi.getAll(true).catch(() => ({ data: { data: [] } })),
+    ]);
+    setMembers(memberRes.data.data || []);
+    setPlans(planRes.data.data || []);
+  };
+
   const handleCreate = async () => {
-    if (!createForm.user_id || !createForm.plan_id) { setMsg({ type: "error", text: "ID membre et plan requis" }); return; }
+    if (!createForm.user_id || !createForm.plan_id) { setMsg({ type: "error", text: "Selectionnez un membre et un plan" }); return; }
     try {
       await subscriptionsApi.create({ user_id: Number(createForm.user_id), plan_id: Number(createForm.plan_id), payment_method: createForm.payment_method, auto_activate: createForm.auto_activate });
-      setMsg({ type: "success", text: "Abonnement cree" }); setShowCreate(false);
-      setCreateForm({ user_id: "", plan_id: "", payment_method: "CASH", auto_activate: false }); load();
+      setMsg({ type: "success", text: createForm.auto_activate ? "Abonnement cree et active" : "Abonnement cree en attente" }); setShowCreate(false);
+      setCreateForm({ user_id: "", plan_id: "", payment_method: "WAVE", auto_activate: true }); load();
     } catch (err: any) { setMsg({ type: "error", text: err.response?.data?.message || "Erreur" }); }
   };
 
@@ -78,19 +93,44 @@ export function AdminSubscriptions() {
       {showCreate && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
           <h3 className="font-bold mb-4">Nouvel abonnement</h3>
+          <div className="bg-zinc-950 border border-amber-400/20 rounded-xl p-3 text-sm text-zinc-300 mb-4">
+            Selectionnez simplement le membre et le plan. Si le paiement Wave est recu, laissez l'activation immediate cochee.
+          </div>
           <div className="grid sm:grid-cols-2 gap-3">
-            <div><label className="block text-xs text-zinc-400 mb-1">ID membre *</label>
-              <input value={createForm.user_id} onChange={(e) => setCreateForm({ ...createForm, user_id: e.target.value })} placeholder="ID"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
-            <div><label className="block text-xs text-zinc-400 mb-1">ID plan *</label>
-              <input value={createForm.plan_id} onChange={(e) => setCreateForm({ ...createForm, plan_id: e.target.value })} placeholder="ID du plan"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Membre *</label>
+              <Select
+                value={createForm.user_id}
+                onChange={(v) => setCreateForm({ ...createForm, user_id: v })}
+                placeholder="Choisir un membre"
+                options={[
+                  { value: "", label: "Choisir un membre" },
+                  ...members.map((member) => ({
+                    value: String(member.id),
+                    label: `${member.full_name} · ${member.member_code || member.email || member.phone}`,
+                  })),
+                ]}
+              />
+            </div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Plan *</label>
+              <Select
+                value={createForm.plan_id}
+                onChange={(v) => setCreateForm({ ...createForm, plan_id: v })}
+                placeholder="Choisir un plan"
+                options={[
+                  { value: "", label: "Choisir un plan" },
+                  ...plans.map((plan) => ({
+                    value: String(plan.id),
+                    label: `${plan.name} · ${fmt(Number(plan.price))} · ${plan.duration_days}j`,
+                  })),
+                ]}
+              />
+            </div>
             <div><label className="block text-xs text-zinc-400 mb-1">Methode paiement</label>
               <Select value={createForm.payment_method} onChange={(v) => setCreateForm({ ...createForm, payment_method: v })} options={PAY_OPTIONS} /></div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer text-sm">
                 <input type="checkbox" checked={createForm.auto_activate} onChange={(e) => setCreateForm({ ...createForm, auto_activate: e.target.checked })} />
-                Activer immediatement
+                Activer immediatement apres paiement recu
               </label>
             </div>
           </div>

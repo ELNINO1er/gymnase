@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { attendanceApi } from "../../services/api";
+import { attendanceApi, usersApi } from "../../services/api";
 import { DoorOpen, LogIn, LogOut, Clock } from "lucide-react";
+import { Select } from "../../components/ui";
 
 export function AdminPresences() {
   const [inGym, setInGym] = useState<any[]>([]);
   const [todayLogs, setTodayLogs] = useState<any>(null);
+  const [members, setMembers] = useState<any[]>([]);
   const [checkUserId, setCheckUserId] = useState("");
   const [msg, setMsg] = useState({ type: "", text: "" });
   const [loading, setLoading] = useState(true);
@@ -13,12 +15,22 @@ export function AdminPresences() {
 
   const loadData = async () => {
     try {
-      const [gymRes, todayRes] = await Promise.all([attendanceApi.getInGym(), attendanceApi.getToday()]);
+      const [gymRes, todayRes, membersRes] = await Promise.all([
+        attendanceApi.getInGym(),
+        attendanceApi.getToday(),
+        usersApi.getAll({ page: 1, limit: 200, role: "MEMBER", status: "ACTIVE" }),
+      ]);
       setInGym(gymRes.data.data.members);
       setTodayLogs(todayRes.data.data);
+      setMembers(membersRes.data.data || []);
     } catch {}
     setLoading(false);
   };
+
+  const memberOptions = members.map((member) => ({
+    value: String(member.id),
+    label: `${member.full_name}${member.member_code ? ` - ${member.member_code}` : ""}`,
+  }));
 
   const handleCheckIn = async () => {
     if (!checkUserId) return;
@@ -55,10 +67,13 @@ export function AdminPresences() {
       {/* Check-in manuel */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6 flex gap-3 items-end">
         <div className="flex-1">
-          <label className="block text-xs text-zinc-400 mb-1">Check-in manuel (ID membre)</label>
-          <input value={checkUserId} onChange={(e) => setCheckUserId(e.target.value)} placeholder="ID du membre"
-            onKeyDown={(e) => e.key === "Enter" && handleCheckIn()}
-            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:border-amber-400 focus:outline-none" />
+          <label className="block text-xs text-zinc-400 mb-1">Check-in manuel</label>
+          <Select
+            value={checkUserId}
+            onChange={setCheckUserId}
+            options={memberOptions}
+            placeholder={memberOptions.length ? "Choisir un membre actif" : "Aucun membre actif"}
+          />
         </div>
         <button onClick={handleCheckIn} className="bg-green-500 hover:bg-green-400 text-white font-bold px-4 py-2 rounded-lg text-sm flex items-center gap-1">
           <LogIn size={14} /> Entree

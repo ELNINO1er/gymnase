@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { workoutsApi } from "../../services/api";
+import { usersApi, workoutsApi } from "../../services/api";
 import { Dumbbell, Plus, Trash2, X } from "lucide-react";
-import { useConfirm } from "../../components/ui";
+import { Select, useConfirm } from "../../components/ui";
 
 interface ExerciseForm { day_number: number; exercise_name: string; sets_count: string; reps_count: string; weight_kg: string; duration_minutes: string; notes: string }
 const emptyExercise = (): ExerciseForm => ({ day_number: 1, exercise_name: "", sets_count: "", reps_count: "", weight_kg: "", duration_minutes: "", notes: "" });
 
 export function AdminWorkouts() {
   const [plans, setPlans] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState({ type: "", text: "" });
@@ -19,9 +20,27 @@ export function AdminWorkouts() {
   const [exercises, setExercises] = useState<ExerciseForm[]>([emptyExercise()]);
 
   useEffect(() => { load(); }, []);
-  const load = (page = 1) => {
-    workoutsApi.getAll({ page }).then(({ data }) => { setPlans(data.data); setPagination(data.pagination); setLoading(false); }).catch(() => setLoading(false));
+  const load = async (page = 1) => {
+    setLoading(true);
+    try {
+      const [plansRes, membersRes] = await Promise.all([
+        workoutsApi.getAll({ page }),
+        usersApi.getAll({ page: 1, limit: 200, role: "MEMBER", status: "ACTIVE" }),
+      ]);
+      setPlans(plansRes.data.data || []);
+      setPagination(plansRes.data.pagination);
+      setMembers(membersRes.data.data || []);
+    } catch {
+      // Le message d'erreur detaille apparait lors des actions de creation/suppression.
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const memberOptions = members.map((member) => ({
+    value: String(member.id),
+    label: `${member.full_name}${member.member_code ? ` - ${member.member_code}` : ""}`,
+  }));
 
   const handleDelete = (id: number) => {
     confirm("Supprimer ce programme ?", async () => { await workoutsApi.delete(id); load(); }, { title: "Supprimer", variant: "danger", confirmLabel: "Supprimer" });
@@ -34,7 +53,7 @@ export function AdminWorkouts() {
   };
 
   const handleCreate = async () => {
-    if (!form.user_id || !form.title) { setMsg({ type: "error", text: "ID membre et titre requis" }); return; }
+    if (!form.user_id || !form.title) { setMsg({ type: "error", text: "Selectionnez un membre et saisissez un titre" }); return; }
     const validExercises = exercises.filter((ex) => ex.exercise_name.trim());
     if (validExercises.length === 0) { setMsg({ type: "error", text: "Ajoutez au moins un exercice" }); return; }
 
@@ -83,9 +102,13 @@ export function AdminWorkouts() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
           <h3 className="font-bold mb-4">Creer un programme</h3>
           <div className="grid sm:grid-cols-2 gap-3 mb-4">
-            <div><label className="block text-xs text-zinc-400 mb-1">ID du membre *</label>
-              <input value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })} placeholder="ID"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>
+            <div><label className="block text-xs text-zinc-400 mb-1">Membre *</label>
+              <Select
+                value={form.user_id}
+                onChange={(value) => setForm({ ...form, user_id: value })}
+                options={memberOptions}
+                placeholder={memberOptions.length ? "Choisir un membre" : "Aucun membre actif"}
+              /></div>
             <div><label className="block text-xs text-zinc-400 mb-1">Titre *</label>
               <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Perte de poids 4 semaines"
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:border-amber-400 focus:outline-none" /></div>

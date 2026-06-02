@@ -14,7 +14,7 @@ const createUserSchema = z.object({
   email: z.string().email().max(150).optional().nullable(),
   phone: z.string().min(8).max(30),
   password: z.string().min(6).max(100),
-  role: z.enum(["VISITOR", "MEMBER", "ADMIN"]).default("MEMBER"),
+  role: z.enum(["VISITOR", "MEMBER", "COACH", "ADMIN"]).default("MEMBER"),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED"]).default("ACTIVE"),
   sport_goal: z.string().max(255).optional().nullable(),
 });
@@ -23,7 +23,7 @@ const updateUserSchema = z.object({
   full_name: z.string().min(2).max(150).optional(),
   email: z.string().email().max(150).optional().nullable(),
   phone: z.string().min(8).max(30).optional(),
-  role: z.enum(["VISITOR", "MEMBER", "ADMIN"]).optional(),
+  role: z.enum(["VISITOR", "MEMBER", "COACH", "ADMIN"]).optional(),
   status: z.enum(["PENDING", "ACTIVE", "SUSPENDED", "EXPIRED", "DELETED"]).optional(),
   sport_goal: z.string().max(255).optional().nullable(),
 });

@@ -79,12 +79,43 @@ export async function sendMessage(req: Request, res: Response) {
 
     const { receiver_id, title, content, type, target_group } = parsed.data;
     const senderId = req.user!.userId;
+    const senderRole = req.user!.role;
+    const senderGymId = req.user!.gymId;
+    const isAdminSender = ["ADMIN", "SUPER_ADMIN"].includes(senderRole);
     let sentCount = 0;
+
+    if (!isAdminSender) {
+      if (type !== "PRIVATE" || !receiver_id) {
+        error(res, "Un membre peut uniquement envoyer un message prive a l'administration", 400, ErrorCode.VALIDATION_ERROR);
+        return;
+      }
+
+      const [admin] = await query<any[]>(
+        `SELECT id FROM users
+         WHERE id = ? AND gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'`,
+        [receiver_id, senderGymId]
+      );
+
+      if (!admin) {
+        error(res, "Destinataire admin introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
+        return;
+      }
+    }
 
     if (type === "PRIVATE") {
       if (!receiver_id) {
         error(res, "receiver_id requis pour un message prive", 400, ErrorCode.VALIDATION_ERROR);
         return;
+      }
+      if (isAdminSender) {
+        const [receiver] = await query<any[]>(
+          "SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'",
+          [receiver_id, senderGymId]
+        );
+        if (!receiver) {
+          error(res, "Destinataire introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
+          return;
+        }
       }
       await query<any>(
         "INSERT INTO messages (sender_id, receiver_id, title, content, type) VALUES (?, ?, ?, ?, 'PRIVATE')",
@@ -92,8 +123,13 @@ export async function sendMessage(req: Request, res: Response) {
       );
       sentCount = 1;
     } else if (type === "GROUP" && target_group) {
+      if (!isAdminSender) {
+        error(res, "Acces refuse", 403, ErrorCode.FORBIDDEN);
+        return;
+      }
       // Determiner les destinataires selon le groupe
-      let condition = "WHERE status != 'DELETED'";
+      let condition = "WHERE gym_id = ? AND status != 'DELETED'";
+      const recipientParams: any[] = [senderGymId];
       if (target_group === "MEMBERS") condition += " AND role = 'MEMBER' AND status = 'ACTIVE'";
       else if (target_group === "EXPIRED") condition += " AND status = 'EXPIRED'";
       else if (target_group === "COACHES") condition += " AND role = 'COACH'";
@@ -103,7 +139,7 @@ export async function sendMessage(req: Request, res: Response) {
         )`;
       }
 
-      const recipients = await query<any[]>(`SELECT id FROM users ${condition}`);
+      const recipients = await query<any[]>(`SELECT id FROM users ${condition}`, recipientParams);
       for (const r of recipients) {
         await query<any>(
           "INSERT INTO messages (sender_id, receiver_id, title, content, type, target_group) VALUES (?, ?, ?, ?, 'GROUP', ?)",
@@ -112,7 +148,14 @@ export async function sendMessage(req: Request, res: Response) {
       }
       sentCount = recipients.length;
     } else if (type === "BROADCAST") {
-      const recipients = await query<any[]>("SELECT id FROM users WHERE status != 'DELETED' AND id != ?", [senderId]);
+      if (!isAdminSender) {
+        error(res, "Acces refuse", 403, ErrorCode.FORBIDDEN);
+        return;
+      }
+      const recipients = await query<any[]>(
+        "SELECT id FROM users WHERE gym_id = ? AND status != 'DELETED' AND id != ?",
+        [senderGymId, senderId]
+      );
       for (const r of recipients) {
         await query<any>(
           "INSERT INTO messages (sender_id, receiver_id, title, content, type) VALUES (?, ?, ?, ?, 'BROADCAST')",

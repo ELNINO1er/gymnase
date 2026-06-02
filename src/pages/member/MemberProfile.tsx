@@ -30,7 +30,7 @@ export function MemberProfile() {
       setMessage({ type: "success", text: "Profil mis a jour" });
       setEditing(false);
     } catch (err: any) {
-      setMessage({ type: "error", text: err.response?.data?.error || "Erreur" });
+      setMessage({ type: "error", text: err.response?.data?.message || err.response?.data?.error || "Erreur" });
     }
     setSaving(false);
   };
@@ -51,7 +51,7 @@ export function MemberProfile() {
       setMessage({ type: "success", text: "Mot de passe modifie" });
       setPasswordForm({ current: "", new_password: "" });
     } catch (err: any) {
-      setMessage({ type: "error", text: err.response?.data?.error || "Erreur" });
+      setMessage({ type: "error", text: err.response?.data?.message || err.response?.data?.error || "Erreur" });
     }
     setSaving(false);
   };

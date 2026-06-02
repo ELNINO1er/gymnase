@@ -35,6 +35,7 @@ export function PlatformGymDetail() {
   const [showAdminForm, setShowAdminForm] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
   const [adminForm, setAdminForm] = useState({ full_name: "", email: "", phone: "", password: "" });
+  const [lastAdminLogin, setLastAdminLogin] = useState<{ email: string; password: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -54,6 +55,7 @@ export function PlatformGymDetail() {
     setSavingAdmin(true);
     try {
       await platformApi.createGymAdmin(Number(id), adminForm);
+      setLastAdminLogin({ email: adminForm.email, password: adminForm.password });
       setAdminForm({ full_name: "", email: "", phone: "", password: "" });
       setShowAdminForm(false);
       await load();
@@ -135,6 +137,16 @@ export function PlatformGymDetail() {
               {savingAdmin ? "Creation..." : "Creer l'admin"}
             </button>
           </form>
+        )}
+
+        {lastAdminLogin && (
+          <div className="p-4 border-b border-zinc-800 bg-amber-400/10 text-sm">
+            <div className="font-bold text-amber-300">Admin pret a se connecter</div>
+            <div className="text-zinc-300 mt-1">
+              Utilisez <span className="font-mono text-white">/admin/login</span> avec
+              <span className="font-mono text-white"> {lastAdminLogin.email}</span> et le mot de passe saisi lors de la creation.
+            </div>
+          </div>
         )}
 
         {gym.admins.length === 0 ? (

@@ -26,6 +26,7 @@ describe("Router configuration", () => {
     expect(paths).toContain("/membre/progression");
     expect(paths).toContain("/membre/programmes");
     expect(paths).toContain("/membre/badges");
+    expect(paths).toContain("/membre/boutique");
     expect(paths).toContain("/membre/parrainage");
     expect(paths).toContain("/membre/messages");
     expect(paths).toContain("/membre/factures");
