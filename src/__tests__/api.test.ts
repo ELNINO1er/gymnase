@@ -107,4 +107,60 @@ describe("API endpoints structure", () => {
     expect(dashboardApi).toHaveProperty("dailyRevenue");
     expect(dashboardApi).toHaveProperty("monthlyRevenue");
   });
+
+  it("platformApi has all required methods including new ones", async () => {
+    const { platformApi } = await import("../services/api");
+    expect(platformApi).toHaveProperty("summary");
+    expect(platformApi).toHaveProperty("gyms");
+    expect(platformApi).toHaveProperty("createGym");
+    expect(platformApi).toHaveProperty("getGymDetail");
+    expect(platformApi).toHaveProperty("updateGymStatus");
+    expect(platformApi).toHaveProperty("createGymAdmin");
+    expect(platformApi).toHaveProperty("revenue");
+    expect(platformApi).toHaveProperty("logs");
+    expect(platformApi).toHaveProperty("switchGym");
+    expect(platformApi).toHaveProperty("admins");
+    expect(platformApi).toHaveProperty("createAdmin");
+  });
+
+  it("coachApi has all required methods", async () => {
+    const { coachApi } = await import("../services/api");
+    expect(coachApi).toHaveProperty("dashboard");
+    expect(coachApi).toHaveProperty("sessions");
+    expect(coachApi).toHaveProperty("members");
+  });
+
+  it("invoicesApi has all required methods", async () => {
+    const { invoicesApi } = await import("../services/api");
+    expect(invoicesApi).toHaveProperty("getAll");
+    expect(invoicesApi).toHaveProperty("getUserInvoices");
+    expect(invoicesApi).toHaveProperty("generate");
+    expect(invoicesApi).toHaveProperty("getPdf");
+  });
+
+  it("badgesApi has all required methods", async () => {
+    const { badgesApi } = await import("../services/api");
+    expect(badgesApi).toHaveProperty("getAll");
+    expect(badgesApi).toHaveProperty("getUserBadges");
+    expect(badgesApi).toHaveProperty("checkAndAward");
+    expect(badgesApi).toHaveProperty("award");
+  });
+
+  it("shopApi has all required methods", async () => {
+    const { shopApi } = await import("../services/api");
+    expect(shopApi).toHaveProperty("getProducts");
+    expect(shopApi).toHaveProperty("createProduct");
+    expect(shopApi).toHaveProperty("createSale");
+    expect(shopApi).toHaveProperty("getSales");
+    expect(shopApi).toHaveProperty("getSaleStats");
+  });
+
+  it("crmApi has all required methods", async () => {
+    const { crmApi } = await import("../services/api");
+    expect(crmApi).toHaveProperty("getMemberCRM");
+    expect(crmApi).toHaveProperty("addNote");
+    expect(crmApi).toHaveProperty("deleteNote");
+    expect(crmApi).toHaveProperty("getRiskScores");
+    expect(crmApi).toHaveProperty("recalculateRiskScores");
+  });
 });

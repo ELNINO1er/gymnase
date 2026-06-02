@@ -6,6 +6,7 @@ import { PublicLayout } from "./layouts/PublicLayout";
 import { MemberLayout } from "./layouts/MemberLayout";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { PlatformLayout } from "./layouts/PlatformLayout";
+import { CoachLayout } from "./layouts/CoachLayout";
 
 // Pages publiques
 import { HomePage } from "./pages/public/HomePage";
@@ -24,6 +25,7 @@ import { MemberWorkouts } from "./pages/member/MemberWorkouts";
 import { MemberBadges } from "./pages/member/MemberBadges";
 import { MemberReferral } from "./pages/member/MemberReferral";
 import { MemberMessages } from "./pages/member/MemberMessages";
+import { MemberInvoices } from "./pages/member/MemberInvoices";
 
 // Pages admin
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
@@ -46,7 +48,19 @@ import { AdminNotifications } from "./pages/admin/AdminNotifications";
 import { AdminRiskScores } from "./pages/admin/AdminRiskScores";
 import { AdminSubscriptions } from "./pages/admin/AdminSubscriptions";
 import { AdminInvoices } from "./pages/admin/AdminInvoices";
-import { AdminPlatform } from "./pages/admin/AdminPlatform";
+
+// Pages plateforme
+import { PlatformDashboard } from "./pages/platform/PlatformDashboard";
+import { PlatformGyms } from "./pages/platform/PlatformGyms";
+import { PlatformGymDetail } from "./pages/platform/PlatformGymDetail";
+import { PlatformAdmins } from "./pages/platform/PlatformAdmins";
+import { PlatformLogs } from "./pages/platform/PlatformLogs";
+
+// Pages coach
+import { CoachDashboard } from "./pages/coach/CoachDashboard";
+import { CoachSessions } from "./pages/coach/CoachSessions";
+import { CoachMembers } from "./pages/coach/CoachMembers";
+import { CoachPrograms } from "./pages/coach/CoachPrograms";
 
 export const router = createBrowserRouter([
   // ── Routes publiques ─────────────────────────────────────
@@ -79,6 +93,22 @@ export const router = createBrowserRouter([
       { path: "/membre/badges", element: <MemberBadges /> },
       { path: "/membre/parrainage", element: <MemberReferral /> },
       { path: "/membre/messages", element: <MemberMessages /> },
+      { path: "/membre/factures", element: <MemberInvoices /> },
+    ],
+  },
+
+  // ── Routes coach ───────────────────────────────────────────
+  {
+    element: (
+      <ProtectedRoute roles={["COACH", "ADMIN", "SUPER_ADMIN"]} loginPath="/admin/login" requireGym>
+        <CoachLayout />
+      </ProtectedRoute>
+    ),
+    children: [
+      { path: "/coach", element: <CoachDashboard /> },
+      { path: "/coach/seances", element: <CoachSessions /> },
+      { path: "/coach/membres", element: <CoachMembers /> },
+      { path: "/coach/programmes", element: <CoachPrograms /> },
     ],
   },
 
@@ -113,7 +143,7 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // Espace proprietaire plateforme
+  // ── Espace plateforme ──────────────────────────────────────
   {
     element: (
       <ProtectedRoute roles={["SUPER_ADMIN"]} loginPath="/admin/login" platformOnly>
@@ -121,7 +151,11 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-      { path: "/plateforme", element: <AdminPlatform /> },
+      { path: "/plateforme", element: <PlatformDashboard /> },
+      { path: "/plateforme/salles", element: <PlatformGyms /> },
+      { path: "/plateforme/salles/:id", element: <PlatformGymDetail /> },
+      { path: "/plateforme/admins", element: <PlatformAdmins /> },
+      { path: "/plateforme/logs", element: <PlatformLogs /> },
     ],
   },
 

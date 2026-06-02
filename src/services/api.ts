@@ -317,8 +317,14 @@ export const platformApi = {
     country?: string;
     status?: "PENDING" | "ACTIVE" | "SUSPENDED";
   }) => api.post("/platform/gyms", data),
+  getGymDetail: (id: number) => api.get(`/platform/gyms/${id}`),
   updateGymStatus: (id: number, status: "PENDING" | "ACTIVE" | "SUSPENDED") =>
     api.put(`/platform/gyms/${id}/status`, { status }),
+  createGymAdmin: (gymId: number, data: { full_name: string; email: string; phone: string; password: string }) =>
+    api.post(`/platform/gyms/${gymId}/admins`, data),
+  revenue: () => api.get("/platform/revenue"),
+  logs: (params?: { page?: number }) => api.get("/platform/logs", { params }),
+  switchGym: (gym_id: number | null) => api.post("/platform/switch-gym", { gym_id }),
   admins: () => api.get("/platform/admins"),
   createAdmin: (data: {
     full_name: string;
@@ -326,4 +332,12 @@ export const platformApi = {
     phone: string;
     password: string;
   }) => api.post("/platform/admins", data),
+};
+
+// ── Coach API ─────────────────────────────────────────────────
+
+export const coachApi = {
+  dashboard: () => api.get("/coach/dashboard"),
+  sessions: () => api.get("/coach/sessions"),
+  members: () => api.get("/coach/members"),
 };

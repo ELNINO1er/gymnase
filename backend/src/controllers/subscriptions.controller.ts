@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error, paginated } from "../utils/response.js";
-import { canAccessUserResource } from "../utils/access.js";
+import { canAccessUserResource, requireGymContext } from "../utils/access.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -22,9 +22,11 @@ export async function getSubscriptions(req: Request, res: Response) {
     const offset = (page - 1) * limit;
     const status = req.query.status as string || "";
     const userId = req.query.user_id as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "WHERE 1=1";
-    const params: any[] = [];
+    let where = "WHERE s.gym_id = ?";
+    const params: any[] = [gymId];
 
     if (status) { where += " AND s.status = ?"; params.push(status); }
     if (userId) { where += " AND s.user_id = ?"; params.push(userId); }
@@ -58,14 +60,16 @@ export async function getUserSubscriptions(req: Request, res: Response) {
   try {
     const { userId } = req.params;
     if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const subs = await query<any[]>(
       `SELECT s.*, mp.name as plan_name, mp.price as plan_price, mp.duration_days
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE s.user_id = ?
+       WHERE s.user_id = ? AND s.gym_id = ?
        ORDER BY s.created_at DESC`,
-      [userId]
+      [userId, gymId]
     );
 
     // Identifier l'abonnement actif
@@ -89,16 +93,18 @@ export async function createSubscription(req: Request, res: Response) {
     }
 
     const { user_id, plan_id, payment_method, auto_activate } = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     // Verifier utilisateur
-    const users = await query<any[]>("SELECT id, status, full_name FROM users WHERE id = ? AND status != 'DELETED'", [user_id]);
+    const users = await query<any[]>("SELECT id, status, full_name FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [user_id, gymId]);
     if (users.length === 0) {
       error(res, "Utilisateur introuvable", 404);
       return;
     }
 
     // Verifier plan
-    const plans = await query<any[]>("SELECT * FROM membership_plans WHERE id = ? AND is_active = TRUE", [plan_id]);
+    const plans = await query<any[]>("SELECT * FROM membership_plans WHERE id = ? AND gym_id = ? AND is_active = TRUE", [plan_id, gymId]);
     if (plans.length === 0) {
       error(res, "Plan introuvable ou inactif", 404);
       return;
@@ -106,22 +112,25 @@ export async function createSubscription(req: Request, res: Response) {
 
     const plan = plans[0];
     const startDate = new Date().toISOString().split("T")[0];
-    const endDate = new Date(Date.now() + plan.duration_days * 86400000).toISOString().split("T")[0];
+    // For session packs: set far future end_date if duration_days is 0
+    const durationDays = plan.duration_days || 365;
+    const endDate = new Date(Date.now() + durationDays * 86400000).toISOString().split("T")[0];
     const subStatus = auto_activate ? "ACTIVE" : "PENDING";
+    const sessionsTotal = plan.plan_type === "SESSIONS" ? (plan.sessions_count || null) : null;
 
     // Creer souscription
     const subResult = await query<any>(
-      `INSERT INTO subscriptions (user_id, plan_id, start_date, end_date, status)
-       VALUES (?, ?, ?, ?, ?)`,
-      [user_id, plan_id, startDate, endDate, subStatus]
+      `INSERT INTO subscriptions (gym_id, user_id, plan_id, start_date, end_date, status, sessions_total, sessions_used)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+      [gymId, user_id, plan_id, startDate, endDate, subStatus, sessionsTotal]
     );
 
     // Creer paiement associe
     const payStatus = auto_activate ? "PAID" : "PENDING";
     const payResult = await query<any>(
-      `INSERT INTO payments (user_id, subscription_id, amount, payment_method, status${auto_activate ? ", paid_at" : ""})
-       VALUES (?, ?, ?, ?, ?${auto_activate ? ", NOW()" : ""})`,
-      [user_id, subResult.insertId, plan.price, payment_method, payStatus]
+      `INSERT INTO payments (gym_id, user_id, subscription_id, amount, payment_method, status${auto_activate ? ", paid_at" : ""})
+       VALUES (?, ?, ?, ?, ?, ?${auto_activate ? ", NOW()" : ""})`,
+      [gymId, user_id, subResult.insertId, plan.price, payment_method, payStatus]
     );
 
     // Si auto_activate, passer l'utilisateur en ACTIVE/MEMBER
@@ -160,10 +169,12 @@ export async function createSubscription(req: Request, res: Response) {
 export async function activateSubscription(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const subs = await query<any[]>(
-      "SELECT s.*, u.full_name FROM subscriptions s JOIN users u ON u.id = s.user_id WHERE s.id = ?",
-      [id]
+      "SELECT s.*, u.full_name FROM subscriptions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.gym_id = ?",
+      [id, gymId]
     );
 
     if (subs.length === 0) {
@@ -184,7 +195,7 @@ export async function activateSubscription(req: Request, res: Response) {
     }
 
     // Activer l'abonnement
-    await query<any>("UPDATE subscriptions SET status = 'ACTIVE' WHERE id = ?", [id]);
+    await query<any>("UPDATE subscriptions SET status = 'ACTIVE' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     // Passer l'utilisateur en ACTIVE/MEMBER si PENDING
     await query<any>(
@@ -211,10 +222,12 @@ export async function activateSubscription(req: Request, res: Response) {
 export async function cancelSubscription(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const subs = await query<any[]>(
-      "SELECT s.*, u.full_name FROM subscriptions s JOIN users u ON u.id = s.user_id WHERE s.id = ?",
-      [id]
+      "SELECT s.*, u.full_name FROM subscriptions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.gym_id = ?",
+      [id, gymId]
     );
 
     if (subs.length === 0) {
@@ -229,7 +242,7 @@ export async function cancelSubscription(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE subscriptions SET status = 'CANCELLED' WHERE id = ?", [id]);
+    await query<any>("UPDATE subscriptions SET status = 'CANCELLED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     // Annuler le paiement associe s'il est PENDING
     await query<any>(
@@ -257,14 +270,16 @@ export async function renewSubscription(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const paymentMethod = (req.body.payment_method as string) || "CASH";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const subs = await query<any[]>(
       `SELECT s.*, mp.duration_days, mp.price, mp.name as plan_name, u.full_name
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
        JOIN users u ON u.id = s.user_id
-       WHERE s.id = ?`,
-      [id]
+       WHERE s.id = ? AND s.gym_id = ?`,
+      [id, gymId]
     );
 
     if (subs.length === 0) {
@@ -281,16 +296,16 @@ export async function renewSubscription(req: Request, res: Response) {
 
     // Creer nouvelle souscription
     const newSubResult = await query<any>(
-      `INSERT INTO subscriptions (user_id, plan_id, start_date, end_date, status)
-       VALUES (?, ?, ?, ?, 'PENDING')`,
-      [sub.user_id, sub.plan_id, newStart, newEnd]
+      `INSERT INTO subscriptions (gym_id, user_id, plan_id, start_date, end_date, status)
+       VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+      [gymId, sub.user_id, sub.plan_id, newStart, newEnd]
     );
 
     // Creer paiement
     const payResult = await query<any>(
-      `INSERT INTO payments (user_id, subscription_id, amount, payment_method, status)
-       VALUES (?, ?, ?, ?, 'PENDING')`,
-      [sub.user_id, newSubResult.insertId, sub.price, paymentMethod]
+      `INSERT INTO payments (gym_id, user_id, subscription_id, amount, payment_method, status)
+       VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+      [gymId, sub.user_id, newSubResult.insertId, sub.price, paymentMethod]
     );
 
     success(res, {
@@ -318,27 +333,33 @@ export async function renewSubscription(req: Request, res: Response) {
 
 export async function getExpiredSubscriptions(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
     const subs = await query<any[]>(
       `SELECT s.*, mp.name as plan_name, mp.price as plan_price,
               u.full_name, u.email, u.phone, u.member_code
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
        JOIN users u ON u.id = s.user_id
-       WHERE s.status = 'ACTIVE' AND s.end_date < CURDATE()
-       ORDER BY s.end_date ASC`
+       WHERE s.gym_id = ? AND s.status = 'ACTIVE' AND s.end_date < CURDATE()
+       ORDER BY s.end_date ASC`,
+      [gymId]
     );
 
     // Marquer comme expires
     if (subs.length > 0) {
       await query<any>(
-        "UPDATE subscriptions SET status = 'EXPIRED' WHERE status = 'ACTIVE' AND end_date < CURDATE()"
+        "UPDATE subscriptions SET status = 'EXPIRED' WHERE gym_id = ? AND status = 'ACTIVE' AND end_date < CURDATE()",
+        [gymId]
       );
       // Marquer les utilisateurs concernes
       await query<any>(
         `UPDATE users SET status = 'EXPIRED'
          WHERE id IN (SELECT user_id FROM subscriptions WHERE status = 'EXPIRED')
            AND role = 'MEMBER'
-           AND id NOT IN (SELECT user_id FROM subscriptions WHERE status = 'ACTIVE' AND end_date >= CURDATE())`
+           AND gym_id = ?
+           AND id NOT IN (SELECT user_id FROM subscriptions WHERE gym_id = ? AND status = 'ACTIVE' AND end_date >= CURDATE())`,
+        [gymId, gymId]
       );
     }
 

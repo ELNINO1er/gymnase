@@ -3,10 +3,13 @@ import { CheckCircle, XCircle, Dumbbell, LogIn } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../../services/api";
 
+const AUTO_RESET_SECONDS = 5;
+
 export function CheckInPage() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [countdown, setCountdown] = useState(AUTO_RESET_SECONDS);
   const navigate = useNavigate();
 
   const isLoggedIn = !!localStorage.getItem("token");
@@ -30,7 +33,26 @@ export function CheckInPage() {
       });
   }, [isLoggedIn]);
 
-  // Pas connecte → rediriger vers login
+  // Auto-reset countdown after result is shown
+  useEffect(() => {
+    if (loading || !result) return;
+
+    setCountdown(AUTO_RESET_SECONDS);
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          navigate("/kiosk");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [loading, result, navigate]);
+
+  // Pas connecte -> rediriger vers login
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-6" style={{ fontFamily: "system-ui, sans-serif" }}>
@@ -80,23 +102,20 @@ export function CheckInPage() {
             </div>
           )}
 
-          <div className="text-green-400/80 text-lg mb-6">
+          <div className="text-green-400/80 text-lg mb-4">
             {result.checked_in ? "Entree enregistree !" : "Deja enregistre — Bon entrainement !"}
           </div>
 
-          <Link to="/membre" className="inline-flex bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-6 py-3 rounded-xl font-medium transition">
-            Aller a mon espace
-          </Link>
+          <div className="text-zinc-500 text-sm">Retour automatique dans {countdown}s</div>
         </div>
       ) : (
         <div className="bg-red-500/10 border-2 border-red-500 rounded-3xl p-10 text-center max-w-md w-full animate-in">
           <XCircle className="mx-auto text-red-400 mb-5" size={80} />
           <div className="text-3xl font-black text-red-400 mb-3">ACCES REFUSE</div>
           <div className="text-xl text-zinc-300 mb-4">{error || "Verification echouee"}</div>
-          <div className="text-zinc-500 mb-6">Veuillez contacter l'accueil</div>
-          <Link to="/membre" className="inline-flex bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-6 py-3 rounded-xl font-medium transition">
-            Mon espace
-          </Link>
+          <div className="text-zinc-500 mb-4">Veuillez contacter l'accueil</div>
+
+          <div className="text-zinc-500 text-sm">Retour automatique dans {countdown}s</div>
         </div>
       )}
     </div>

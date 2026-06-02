@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { query } from "../config/database.js";
 import { success, error, ErrorCode } from "../utils/response.js";
 import { logActivity } from "../services/activityLog.js";
+import { requireGymContext } from "../utils/access.js";
 
 /**
  * Genere un token QR unique pour un utilisateur.
@@ -17,10 +18,12 @@ function generateQrToken(userId: number): string {
 export async function getMyQrCode(req: Request, res: Response) {
   try {
     const userId = req.user!.userId;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [user] = await query<any[]>(
-      "SELECT id, full_name, member_code, qr_code_token, status FROM users WHERE id = ?",
-      [userId]
+      "SELECT id, full_name, member_code, qr_code_token, status FROM users WHERE id = ? AND gym_id = ?",
+      [userId, gymId]
     );
 
     if (!user) {
@@ -32,7 +35,7 @@ export async function getMyQrCode(req: Request, res: Response) {
     let token = user.qr_code_token;
     if (!token) {
       token = generateQrToken(userId);
-      await query<any>("UPDATE users SET qr_code_token = ? WHERE id = ?", [token, userId]);
+      await query<any>("UPDATE users SET qr_code_token = ? WHERE id = ? AND gym_id = ?", [token, userId, gymId]);
     }
 
     success(res, {
@@ -52,6 +55,8 @@ export async function getMyQrCode(req: Request, res: Response) {
 export async function verifyQrCode(req: Request, res: Response) {
   try {
     const { qr_token } = req.body;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     if (!qr_token || typeof qr_token !== "string") {
       error(res, "Token QR requis", 400, ErrorCode.VALIDATION_ERROR);
@@ -60,8 +65,8 @@ export async function verifyQrCode(req: Request, res: Response) {
 
     // Trouver l'utilisateur
     const [user] = await query<any[]>(
-      "SELECT id, full_name, member_code, email, phone, role, status FROM users WHERE qr_code_token = ?",
-      [qr_token]
+      "SELECT id, gym_id, full_name, member_code, email, phone, role, status FROM users WHERE qr_code_token = ? AND gym_id = ?",
+      [qr_token, gymId]
     );
 
     if (!user) {
@@ -73,8 +78,8 @@ export async function verifyQrCode(req: Request, res: Response) {
     if (user.status !== "ACTIVE") {
       // Log de tentative refusee
       await query<any>(
-        `INSERT INTO attendance_logs (user_id, method, status, reason) VALUES (?, 'QR_CODE', 'DENIED', ?)`,
-        [user.id, `Compte ${user.status}`]
+        `INSERT INTO attendance_logs (gym_id, user_id, method, status, reason) VALUES (?, ?, 'QR_CODE', 'DENIED', ?)`,
+        [gymId, user.id, `Compte ${user.status}`]
       );
 
       error(res, `Acces refuse : compte ${user.status}`, 403, ErrorCode.FORBIDDEN);
@@ -86,15 +91,15 @@ export async function verifyQrCode(req: Request, res: Response) {
       `SELECT s.id, mp.name as plan_name, s.end_date
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
+       WHERE s.gym_id = ? AND s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
        ORDER BY s.end_date DESC LIMIT 1`,
-      [user.id]
+      [gymId, user.id]
     );
 
     if (!activeSub && user.role === "MEMBER") {
       await query<any>(
-        `INSERT INTO attendance_logs (user_id, method, status, reason) VALUES (?, 'QR_CODE', 'DENIED', 'Abonnement expire')`,
-        [user.id]
+        `INSERT INTO attendance_logs (gym_id, user_id, method, status, reason) VALUES (?, ?, 'QR_CODE', 'DENIED', 'Abonnement expire')`,
+        [gymId, user.id]
       );
 
       error(res, "Abonnement expire", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
@@ -103,14 +108,14 @@ export async function verifyQrCode(req: Request, res: Response) {
 
     // Verifier paiements en retard
     const [pendingPayments] = await query<any[]>(
-      "SELECT COUNT(*) as count FROM payments WHERE user_id = ? AND status = 'PENDING'",
-      [user.id]
+      "SELECT COUNT(*) as count FROM payments WHERE gym_id = ? AND user_id = ? AND status = 'PENDING'",
+      [gymId, user.id]
     );
 
     // Check-in automatique
     await query<any>(
-      `INSERT INTO attendance_logs (user_id, method, status) VALUES (?, 'QR_CODE', 'VALID')`,
-      [user.id]
+      `INSERT INTO attendance_logs (gym_id, user_id, method, status) VALUES (?, ?, 'QR_CODE', 'VALID')`,
+      [gymId, user.id]
     );
 
     const daysLeft = activeSub
@@ -153,7 +158,7 @@ export async function scanQrCode(req: Request, res: Response) {
 
     // Trouver l'utilisateur par token QR
     const [user] = await query<any[]>(
-      "SELECT id, full_name, member_code, email, phone, role, status, sport_goal FROM users WHERE qr_code_token = ?",
+      "SELECT id, gym_id, full_name, member_code, email, phone, role, status, sport_goal FROM users WHERE qr_code_token = ?",
       [qr_token]
     );
 
@@ -162,11 +167,17 @@ export async function scanQrCode(req: Request, res: Response) {
       return;
     }
 
+    const gymId = Number(user.gym_id);
+    if (!Number.isInteger(gymId) || gymId <= 0) {
+      error(res, "Salle introuvable pour ce QR code", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
+
     // Verifier le statut
     if (user.status !== "ACTIVE") {
       await query<any>(
-        `INSERT INTO attendance_logs (user_id, method, status, reason) VALUES (?, 'QR_CODE', 'DENIED', ?)`,
-        [user.id, `Compte ${user.status}`]
+        `INSERT INTO attendance_logs (gym_id, user_id, method, status, reason) VALUES (?, ?, 'QR_CODE', 'DENIED', ?)`,
+        [gymId, user.id, `Compte ${user.status}`]
       );
       error(res, `Acces refuse : compte ${user.status}`, 403, ErrorCode.FORBIDDEN);
       return;
@@ -177,15 +188,15 @@ export async function scanQrCode(req: Request, res: Response) {
       `SELECT s.id, mp.name as plan_name, s.end_date, s.start_date
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
+       WHERE s.gym_id = ? AND s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
        ORDER BY s.end_date DESC LIMIT 1`,
-      [user.id]
+      [gymId, user.id]
     );
 
     if (!activeSub && user.role === "MEMBER") {
       await query<any>(
-        `INSERT INTO attendance_logs (user_id, method, status, reason) VALUES (?, 'QR_CODE', 'DENIED', 'Abonnement expire')`,
-        [user.id]
+        `INSERT INTO attendance_logs (gym_id, user_id, method, status, reason) VALUES (?, ?, 'QR_CODE', 'DENIED', 'Abonnement expire')`,
+        [gymId, user.id]
       );
       error(res, "Abonnement expire", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
       return;
@@ -193,21 +204,21 @@ export async function scanQrCode(req: Request, res: Response) {
 
     // Paiements en retard
     const [pendingPayments] = await query<any[]>(
-      "SELECT COUNT(*) as count FROM payments WHERE user_id = ? AND status = 'PENDING'",
-      [user.id]
+      "SELECT COUNT(*) as count FROM payments WHERE gym_id = ? AND user_id = ? AND status = 'PENDING'",
+      [gymId, user.id]
     );
 
     // Check-in automatique (eviter doublon si deja checked-in aujourd'hui)
     const [alreadyIn] = await query<any[]>(
-      `SELECT id FROM attendance_logs WHERE user_id = ? AND check_out_time IS NULL AND DATE(check_in_time) = CURDATE() AND status = 'VALID'`,
-      [user.id]
+      `SELECT id FROM attendance_logs WHERE gym_id = ? AND user_id = ? AND check_out_time IS NULL AND DATE(check_in_time) = CURDATE() AND status = 'VALID'`,
+      [gymId, user.id]
     );
 
     let checkedIn = false;
     if (!alreadyIn) {
       await query<any>(
-        `INSERT INTO attendance_logs (user_id, method, status) VALUES (?, 'QR_CODE', 'VALID')`,
-        [user.id]
+        `INSERT INTO attendance_logs (gym_id, user_id, method, status) VALUES (?, ?, 'QR_CODE', 'VALID')`,
+        [gymId, user.id]
       );
       checkedIn = true;
     }
@@ -218,8 +229,8 @@ export async function scanQrCode(req: Request, res: Response) {
 
     // Stats du membre
     const [visitCount] = await query<any[]>(
-      "SELECT COUNT(*) as c FROM attendance_logs WHERE user_id = ? AND status = 'VALID'",
-      [user.id]
+      "SELECT COUNT(*) as c FROM attendance_logs WHERE gym_id = ? AND user_id = ? AND status = 'VALID'",
+      [gymId, user.id]
     );
 
     success(res, {
@@ -255,11 +266,13 @@ export async function scanQrCode(req: Request, res: Response) {
 export async function selfCheckIn(req: Request, res: Response) {
   try {
     const userId = req.user!.userId;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     // Verifier statut
     const [user] = await query<any[]>(
-      "SELECT id, full_name, member_code, status, role FROM users WHERE id = ?",
-      [userId]
+      "SELECT id, full_name, member_code, status, role FROM users WHERE id = ? AND gym_id = ?",
+      [userId, gymId]
     );
 
     if (!user || user.status !== "ACTIVE") {
@@ -272,15 +285,15 @@ export async function selfCheckIn(req: Request, res: Response) {
       const [activeSub] = await query<any[]>(
         `SELECT s.id, mp.name as plan_name, s.end_date
          FROM subscriptions s JOIN membership_plans mp ON mp.id = s.plan_id
-         WHERE s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
+         WHERE s.gym_id = ? AND s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
          ORDER BY s.end_date DESC LIMIT 1`,
-        [userId]
+        [gymId, userId]
       );
 
       if (!activeSub) {
         await query<any>(
-          `INSERT INTO attendance_logs (user_id, method, status, reason) VALUES (?, 'QR_CODE', 'DENIED', 'Abonnement expire')`,
-          [userId]
+          `INSERT INTO attendance_logs (gym_id, user_id, method, status, reason) VALUES (?, ?, 'QR_CODE', 'DENIED', 'Abonnement expire')`,
+          [gymId, userId]
         );
         error(res, "Abonnement expire", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
         return;
@@ -290,22 +303,22 @@ export async function selfCheckIn(req: Request, res: Response) {
 
       // Verifier si deja checked-in
       const [alreadyIn] = await query<any[]>(
-        `SELECT id FROM attendance_logs WHERE user_id = ? AND check_out_time IS NULL AND DATE(check_in_time) = CURDATE() AND status = 'VALID'`,
-        [userId]
+        `SELECT id FROM attendance_logs WHERE gym_id = ? AND user_id = ? AND check_out_time IS NULL AND DATE(check_in_time) = CURDATE() AND status = 'VALID'`,
+        [gymId, userId]
       );
 
       let checkedIn = false;
       if (!alreadyIn) {
         await query<any>(
-          `INSERT INTO attendance_logs (user_id, method, status) VALUES (?, 'QR_CODE', 'VALID')`,
-          [userId]
+          `INSERT INTO attendance_logs (gym_id, user_id, method, status) VALUES (?, ?, 'QR_CODE', 'VALID')`,
+          [gymId, userId]
         );
         checkedIn = true;
       }
 
       const [visitCount] = await query<any[]>(
-        "SELECT COUNT(*) as c FROM attendance_logs WHERE user_id = ? AND status = 'VALID'",
-        [userId]
+        "SELECT COUNT(*) as c FROM attendance_logs WHERE gym_id = ? AND user_id = ? AND status = 'VALID'",
+        [gymId, userId]
       );
 
       success(res, {
@@ -320,11 +333,11 @@ export async function selfCheckIn(req: Request, res: Response) {
 
     // Admin/Coach : check-in direct
     const [alreadyIn] = await query<any[]>(
-      `SELECT id FROM attendance_logs WHERE user_id = ? AND check_out_time IS NULL AND DATE(check_in_time) = CURDATE() AND status = 'VALID'`,
-      [userId]
+      `SELECT id FROM attendance_logs WHERE gym_id = ? AND user_id = ? AND check_out_time IS NULL AND DATE(check_in_time) = CURDATE() AND status = 'VALID'`,
+      [gymId, userId]
     );
     if (!alreadyIn) {
-      await query<any>(`INSERT INTO attendance_logs (user_id, method, status) VALUES (?, 'QR_CODE', 'VALID')`, [userId]);
+      await query<any>(`INSERT INTO attendance_logs (gym_id, user_id, method, status) VALUES (?, ?, 'QR_CODE', 'VALID')`, [gymId, userId]);
     }
 
     success(res, { access: "GRANTED", member: { full_name: user.full_name }, checked_in: !alreadyIn, already_in: !!alreadyIn }, 200, "Bienvenue !");
@@ -339,9 +352,11 @@ export async function selfCheckIn(req: Request, res: Response) {
 export async function regenerateQrCode(req: Request, res: Response) {
   try {
     const userId = req.user!.userId;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
     const token = generateQrToken(userId);
 
-    await query<any>("UPDATE users SET qr_code_token = ? WHERE id = ?", [token, userId]);
+    await query<any>("UPDATE users SET qr_code_token = ? WHERE id = ? AND gym_id = ?", [token, userId, gymId]);
 
     success(res, { qr_token: token }, 200, "QR code regenere");
   } catch (err) {

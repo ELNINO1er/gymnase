@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { authApi } from "../services/api";
 
-export type UserRole = "VISITOR" | "MEMBER" | "ADMIN" | "SUPER_ADMIN";
+export type UserRole = "VISITOR" | "MEMBER" | "COACH" | "ADMIN" | "SUPER_ADMIN";
 export type UserStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "EXPIRED" | "DELETED";
 
 export interface User {
@@ -49,6 +49,7 @@ interface AuthContextType extends AuthState {
   refreshUser: () => Promise<void>;
   isAdmin: boolean;
   isPlatformAdmin: boolean;
+  isCoach: boolean;
   isMember: boolean;
   isAuthenticated: boolean;
 }
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = !!state.user && !!state.token;
   const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
   const isPlatformAdmin = !!state.user?.is_platform_admin;
+  const isCoach = state.user?.role === "COACH";
   const isMember = state.user?.role === "MEMBER";
 
   // Charger le profil au demarrage si token present
@@ -147,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshUser,
       isAdmin,
       isPlatformAdmin,
+      isCoach,
       isMember,
       isAuthenticated,
     }}>

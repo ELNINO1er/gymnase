@@ -165,11 +165,19 @@ export async function login(req: Request, res: Response) {
       return;
     }
 
+    // Auto-fix: assign gym_id if missing (pre-multitenant users)
+    let gymId = user.gym_id;
+    if (!gymId && !user.is_platform_admin) {
+      const gyms = await query<any[]>("SELECT id FROM gyms WHERE status = 'ACTIVE' ORDER BY id ASC LIMIT 1");
+      gymId = gyms[0]?.id || 1;
+      await query<any>("UPDATE users SET gym_id = ? WHERE id = ? AND gym_id IS NULL", [gymId, user.id]);
+    }
+
     const token = generateToken({
       userId: user.id,
       role: user.role,
       email: user.email,
-      gymId: user.gym_id ?? null,
+      gymId: gymId ?? null,
       isPlatformAdmin: Boolean(user.is_platform_admin),
     });
 
@@ -196,7 +204,7 @@ export async function login(req: Request, res: Response) {
         phone: user.phone,
         role: user.role,
         status: user.status,
-        gym_id: user.gym_id,
+        gym_id: gymId,
         is_platform_admin: Boolean(user.is_platform_admin),
         member_code: user.member_code,
         sport_goal: user.sport_goal,
@@ -393,7 +401,7 @@ export async function refreshToken(req: Request, res: Response) {
 
     // Verifier que l'utilisateur existe toujours et est actif
     const users = await query<any[]>(
-      "SELECT id, role, email, status FROM users WHERE id = ? AND status != 'DELETED'",
+      "SELECT id, role, email, status, gym_id, is_platform_admin FROM users WHERE id = ? AND status != 'DELETED'",
       [req.user.userId]
     );
 

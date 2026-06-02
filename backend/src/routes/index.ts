@@ -24,6 +24,7 @@ import branchesRoutes from "./branches.routes.js";
 import shopRoutes from "./shop.routes.js";
 import badgesRoutes from "./badges.routes.js";
 import platformRoutes from "./platform.routes.js";
+import coachRoutes from "./coach.routes.js";
 
 const router = Router();
 
@@ -58,5 +59,6 @@ router.use("/branches", branchesRoutes);
 router.use("/shop", shopRoutes);
 router.use("/badges", badgesRoutes);
 router.use("/platform", platformRoutes);
+router.use("/coach", coachRoutes);
 
 export default router;

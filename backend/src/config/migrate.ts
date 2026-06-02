@@ -3,6 +3,79 @@ import { resolve } from "path";
 import { pool } from "./database.js";
 import { env } from "./env.js";
 
+function splitSqlClauses(input: string) {
+  const clauses: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    const prev = input[i - 1];
+
+    if ((char === "'" || char === '"' || char === "`") && prev !== "\\") {
+      quote = quote === char ? null : quote || char;
+    }
+
+    if (!quote) {
+      if (char === "(") depth += 1;
+      else if (char === ")") depth = Math.max(0, depth - 1);
+      else if (char === "," && depth === 0) {
+        clauses.push(current.trim());
+        current = "";
+        continue;
+      }
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) clauses.push(current.trim());
+  return clauses;
+}
+
+async function columnExists(connection: any, tableName: string, columnName: string) {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [env.db.name, tableName, columnName]
+  );
+  return (rows as any[]).length > 0;
+}
+
+async function executeStatement(connection: any, statement: string) {
+  const trimmed = statement
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .trim();
+  if (!trimmed) return;
+
+  const alterMatch = trimmed.match(/^ALTER\s+TABLE\s+`?([a-zA-Z0-9_]+)`?\s+(.+)$/is);
+
+  if (alterMatch && /ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/i.test(alterMatch[2])) {
+    const tableName = alterMatch[1];
+    const clauses = splitSqlClauses(alterMatch[2]);
+
+    for (const clause of clauses) {
+      const addMatch = clause.match(/^ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+`?([a-zA-Z0-9_]+)`?\s+(.+)$/is);
+      if (!addMatch) {
+        await connection.query(`ALTER TABLE \`${tableName}\` ${clause}`);
+        continue;
+      }
+
+      const columnName = addMatch[1];
+      if (await columnExists(connection, tableName, columnName)) continue;
+
+      await connection.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${addMatch[2]}`);
+    }
+    return;
+  }
+
+  await connection.query(trimmed);
+}
+
 async function migrate() {
   console.log("[MIGRATE] Demarrage des migrations...");
   console.log(`[MIGRATE] Base: ${env.db.name} @ ${env.db.host}:${env.db.port}`);
@@ -41,7 +114,7 @@ async function migrate() {
       const statements = sql.split(";").filter((s) => s.trim());
 
       for (const statement of statements) {
-        await connection.query(statement);
+        await executeStatement(connection, statement);
       }
 
       await connection.query("INSERT INTO _migrations (name) VALUES (?)", [file]);

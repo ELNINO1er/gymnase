@@ -55,6 +55,7 @@ async function runDailyTasks() {
   await remindPendingPayments();
   await alertInactiveMembers();
   await autoGenerateInvoices();
+  await awardMemberOfTheMonth();
 }
 
 // ── Rappel abonnement expire dans 3 jours ──────────────────────
@@ -194,6 +195,88 @@ async function autoGenerateInvoices() {
   }
 }
 
+// ── Badge "Membre du mois" auto-attribution ─────────────────
+
+async function awardMemberOfTheMonth() {
+  try {
+    // Run on the 1st of each month only
+    const today = new Date();
+    if (today.getDate() !== 1) return;
+
+    const gyms = await query<any[]>(
+      "SELECT id, name FROM gyms WHERE status = 'ACTIVE'"
+    );
+
+    for (const gym of gyms) {
+      // Find the MANUAL badge named "Membre du mois" for this gym
+      const [badge] = await query<any[]>(
+        "SELECT id FROM badges WHERE gym_id = ? AND criteria_type = 'MANUAL' AND name LIKE '%membre du mois%' LIMIT 1",
+        [gym.id]
+      );
+      if (!badge) continue;
+
+      // Find the member with the most completed sessions last month for this gym
+      const topMember = await query<any[]>(
+        `SELECT r.user_id, u.full_name, COUNT(*) as completed
+         FROM reservations r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.gym_id = ?
+           AND r.status = 'COMPLETED'
+           AND MONTH(r.reservation_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+           AND YEAR(r.reservation_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+           AND u.role = 'MEMBER' AND u.status = 'ACTIVE'
+         GROUP BY r.user_id, u.full_name
+         ORDER BY completed DESC
+         LIMIT 1`,
+        [gym.id]
+      );
+
+      if (topMember.length === 0) continue;
+
+      const winner = topMember[0];
+
+      // Check if already awarded this month
+      const [existing] = await query<any[]>(
+        `SELECT id FROM user_badges
+         WHERE user_id = ? AND badge_id = ?
+           AND MONTH(earned_at) = MONTH(CURDATE()) AND YEAR(earned_at) = YEAR(CURDATE())`,
+        [winner.user_id, badge.id]
+      );
+      if (existing) continue;
+
+      // Award the badge
+      await query<any>(
+        "INSERT INTO user_badges (user_id, badge_id) VALUES (?, ?)",
+        [winner.user_id, badge.id]
+      );
+
+      // Notify the winner
+      await query<any>(
+        `INSERT INTO notifications (gym_id, user_id, title, message, type)
+         VALUES (?, ?, 'Membre du mois !', ?, 'INFO')`,
+        [gym.id, winner.user_id, `Felicitations ${winner.full_name} ! Vous etes le membre du mois avec ${winner.completed} seance(s) completee(s) !`]
+      );
+
+      // Notify admins for this gym
+      const admins = await query<any[]>(
+        "SELECT id FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'",
+        [gym.id]
+      );
+      for (const admin of admins) {
+        await query<any>(
+          `INSERT INTO notifications (gym_id, user_id, title, message, type)
+           VALUES (?, ?, 'Membre du mois attribue', ?, 'SYSTEM')`,
+          [gym.id, admin.id, `${winner.full_name} a ete nomme membre du mois (${winner.completed} seances).`]
+        );
+      }
+
+      console.log(`[CRON] Membre du mois ${gym.name}: ${winner.full_name} (${winner.completed} seances)`);
+    }
+  } catch (err) {
+    console.error("[CRON] awardMemberOfTheMonth error:", err);
+  }
+}
+
 // ── Demarrage ──────────────────────────────────────────────────
 
 export function startCronJobs() {
@@ -210,7 +293,7 @@ export function startCronJobs() {
     runDailyTasks().catch((err) => console.error("[CRON] daily tasks error:", err));
   }, DAY_MS));
 
-  console.log("[CRON] Taches automatiques demarrees (5 jobs, intervalle: 24h)");
+  console.log("[CRON] Taches automatiques demarrees (6 jobs, intervalle: 24h)");
 }
 
 export function stopCronJobs() {

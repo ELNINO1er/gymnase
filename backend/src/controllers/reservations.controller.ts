@@ -4,7 +4,7 @@ import { query } from "../config/database.js";
 import { success, error, paginated, ErrorCode } from "../utils/response.js";
 import { logActivity } from "../services/activityLog.js";
 import { getSettingNumber } from "../services/settings.js";
-import { canAccessUserResource } from "../utils/access.js";
+import { canAccessUserResource, requireGymContext } from "../utils/access.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -27,9 +27,11 @@ export async function getReservations(req: Request, res: Response) {
     const date = req.query.date as string || "";
     const userId = req.query.user_id as string || "";
     const sessionId = req.query.session_id as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "WHERE 1=1";
-    const params: any[] = [];
+    let where = "WHERE r.gym_id = ?";
+    const params: any[] = [gymId];
 
     if (status) { where += " AND r.status = ?"; params.push(status); }
     if (date) { where += " AND r.reservation_date = ?"; params.push(date); }
@@ -63,14 +65,17 @@ export async function getReservations(req: Request, res: Response) {
 
 export async function getTodayReservations(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
     const reservations = await query<any[]>(
       `SELECT r.*, s.name as session_name, s.duration_minutes,
               u.full_name as user_name, u.member_code, u.phone as user_phone
        FROM reservations r
        JOIN sessions s ON s.id = r.session_id
        JOIN users u ON u.id = r.user_id
-       WHERE r.reservation_date = CURDATE()
-       ORDER BY r.start_time ASC`
+       WHERE r.gym_id = ? AND r.reservation_date = CURDATE()
+       ORDER BY r.start_time ASC`,
+      [gymId]
     );
 
     const stats = {
@@ -94,12 +99,14 @@ export async function getUserReservations(req: Request, res: Response) {
   try {
     const { userId } = req.params;
     if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const status = req.query.status as string || "";
     const upcoming = req.query.upcoming === "true";
 
-    let where = "WHERE r.user_id = ?";
-    const params: any[] = [userId];
+    let where = "WHERE r.user_id = ? AND r.gym_id = ?";
+    const params: any[] = [userId, gymId];
 
     if (status) { where += " AND r.status = ?"; params.push(status); }
     if (upcoming) { where += " AND r.reservation_date >= CURDATE() AND r.status NOT IN ('CANCELLED', 'COMPLETED', 'NO_SHOW')"; }
@@ -132,30 +139,50 @@ export async function createReservation(req: Request, res: Response) {
 
     const { session_id, reservation_date, start_time, end_time, time_slot_id } = parsed.data;
     const userId = req.user!.userId;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     // 1. Verifier que le membre est actif
-    const [user] = await query<any[]>("SELECT id, status, role FROM users WHERE id = ?", [userId]);
+    const [user] = await query<any[]>("SELECT id, status, role FROM users WHERE id = ? AND gym_id = ?", [userId, gymId]);
     if (!user || user.status !== "ACTIVE") {
       error(res, "Votre compte doit etre actif pour reserver", 403, ErrorCode.FORBIDDEN);
       return;
     }
 
     // 2. Verifier que le membre a un abonnement valide (sauf admin)
-    if (user.role === "MEMBER") {
+    if (user.role === "MEMBER" || user.role === "VISITOR") {
       const [activeSub] = await query<any[]>(
-        "SELECT id FROM subscriptions WHERE user_id = ? AND status = 'ACTIVE' AND end_date >= CURDATE()",
-        [userId]
+        "SELECT id, sessions_total, sessions_used FROM subscriptions WHERE user_id = ? AND gym_id = ? AND status = 'ACTIVE' AND end_date >= CURDATE()",
+        [userId, gymId]
       );
+
       if (!activeSub) {
-        error(res, "Vous n'avez pas d'abonnement actif. Veuillez souscrire a un abonnement.", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
+        // Check if trial session is allowed
+        const trialAllowed = await getSettingNumber("allow_trial_session", 0);
+        if (trialAllowed && user.role === "VISITOR") {
+          const [trialCount] = await query<any[]>(
+            "SELECT COUNT(*) as c FROM reservations WHERE user_id = ? AND gym_id = ? AND status NOT IN ('CANCELLED')",
+            [userId, gymId]
+          );
+          if (trialCount.c > 0) {
+            error(res, "Vous avez deja utilise votre seance d'essai. Veuillez souscrire a un abonnement.", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
+            return;
+          }
+          // Allow trial - continue to booking
+        } else {
+          error(res, "Vous n'avez pas d'abonnement actif. Veuillez souscrire a un abonnement.", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
+          return;
+        }
+      } else if (activeSub.sessions_total !== null && activeSub.sessions_used >= activeSub.sessions_total) {
+        error(res, "Vous avez utilise toutes les seances de votre pack. Veuillez renouveler.", 403, ErrorCode.NO_ACTIVE_SUBSCRIPTION);
         return;
       }
     }
 
     // 3. Verifier que la seance existe et est active
     const [session] = await query<any[]>(
-      "SELECT id, name, capacity FROM sessions WHERE id = ? AND is_active = TRUE",
-      [session_id]
+      "SELECT id, name, capacity FROM sessions WHERE id = ? AND gym_id = ? AND is_active = TRUE",
+      [session_id, gymId]
     );
     if (!session) {
       error(res, "Seance introuvable ou inactive", 404);
@@ -174,7 +201,7 @@ export async function createReservation(req: Request, res: Response) {
     // 5. Determiner la capacite max (time_slot > session)
     let maxCapacity = session.capacity;
     if (time_slot_id) {
-      const [slot] = await query<any[]>("SELECT max_capacity FROM time_slots WHERE id = ? AND is_active = TRUE", [time_slot_id]);
+      const [slot] = await query<any[]>("SELECT max_capacity FROM time_slots WHERE id = ? AND session_id = ? AND is_active = TRUE", [time_slot_id, session_id]);
       if (slot && slot.max_capacity) maxCapacity = slot.max_capacity;
     }
 
@@ -182,8 +209,8 @@ export async function createReservation(req: Request, res: Response) {
     const [slotCount] = await query<any[]>(
       `SELECT COUNT(*) as booked FROM reservations
        WHERE session_id = ? AND reservation_date = ? AND start_time = ?
-         AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
-      [session_id, reservation_date, start_time]
+         AND gym_id = ? AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
+      [session_id, reservation_date, start_time, gymId]
     );
 
     const placesRestantes = maxCapacity - slotCount.booked;
@@ -197,8 +224,8 @@ export async function createReservation(req: Request, res: Response) {
     const [duplicate] = await query<any[]>(
       `SELECT id FROM reservations
        WHERE user_id = ? AND reservation_date = ? AND start_time = ?
-         AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
-      [userId, reservation_date, start_time]
+         AND gym_id = ? AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
+      [userId, reservation_date, start_time, gymId]
     );
 
     if (duplicate) {
@@ -208,19 +235,19 @@ export async function createReservation(req: Request, res: Response) {
 
     // 7. Creer la reservation
     const result = await query<any>(
-      `INSERT INTO reservations (user_id, session_id, time_slot_id, reservation_date, start_time, end_time, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'CONFIRMED')`,
-      [userId, session_id, time_slot_id || null, reservation_date, start_time, end_time]
+      `INSERT INTO reservations (gym_id, user_id, session_id, time_slot_id, reservation_date, start_time, end_time, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED')`,
+      [gymId, userId, session_id, time_slot_id || null, reservation_date, start_time, end_time]
     );
 
     // 8. Notification admin
-    const admins = await query<any[]>("SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'");
-    const [memberInfo] = await query<any[]>("SELECT full_name FROM users WHERE id = ?", [userId]);
+    const admins = await query<any[]>("SELECT id FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'", [gymId]);
+    const [memberInfo] = await query<any[]>("SELECT full_name FROM users WHERE id = ? AND gym_id = ?", [userId, gymId]);
     for (const admin of admins) {
       await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type)
-         VALUES (?, 'Nouvelle reservation', ?, 'RESERVATION')`,
-        [admin.id, `${memberInfo.full_name} a reserve ${session.name} le ${reservation_date} a ${start_time}`]
+        `INSERT INTO notifications (gym_id, user_id, title, message, type)
+         VALUES (?, ?, 'Nouvelle reservation', ?, 'RESERVATION')`,
+        [gymId, admin.id, `${memberInfo.full_name} a reserve ${session.name} le ${reservation_date} a ${start_time}`]
       );
     }
 
@@ -247,10 +274,12 @@ export async function cancelReservation(req: Request, res: Response) {
     const { id } = req.params;
     const userId = req.user!.userId;
     const userRole = req.user!.role;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [reservation] = await query<any[]>(
-      `SELECT r.*, u.full_name FROM reservations r JOIN users u ON u.id = r.user_id WHERE r.id = ?`,
-      [id]
+      `SELECT r.*, u.full_name FROM reservations r JOIN users u ON u.id = r.user_id WHERE r.id = ? AND r.gym_id = ?`,
+      [id, gymId]
     );
 
     if (!reservation) {
@@ -287,7 +316,7 @@ export async function cancelReservation(req: Request, res: Response) {
       }
     }
 
-    await query<any>("UPDATE reservations SET status = 'CANCELLED' WHERE id = ?", [id]);
+    await query<any>("UPDATE reservations SET status = 'CANCELLED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     // Notification au membre si annulee par admin
     if (userRole !== "MEMBER" && reservation.user_id !== userId) {
@@ -310,8 +339,10 @@ export async function cancelReservation(req: Request, res: Response) {
 export async function completeReservation(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const [reservation] = await query<any[]>("SELECT id, status FROM reservations WHERE id = ?", [id]);
+    const [reservation] = await query<any[]>("SELECT id, status FROM reservations WHERE id = ? AND gym_id = ?", [id, gymId]);
     if (!reservation) {
       error(res, "Reservation introuvable", 404);
       return;
@@ -322,7 +353,19 @@ export async function completeReservation(req: Request, res: Response) {
       return;
     }
 
-    await query<any>("UPDATE reservations SET status = 'COMPLETED' WHERE id = ?", [id]);
+    await query<any>("UPDATE reservations SET status = 'COMPLETED' WHERE id = ? AND gym_id = ?", [id, gymId]);
+
+    // Increment sessions_used for session-pack subscriptions
+    const [resv] = await query<any[]>("SELECT user_id FROM reservations WHERE id = ?", [id]);
+    if (resv) {
+      await query<any>(
+        `UPDATE subscriptions SET sessions_used = sessions_used + 1
+         WHERE user_id = ? AND gym_id = ? AND status = 'ACTIVE' AND sessions_total IS NOT NULL AND end_date >= CURDATE()
+         LIMIT 1`,
+        [resv.user_id, gymId]
+      );
+    }
+
     success(res, { message: "Seance marquee comme terminee" });
   } catch (err) {
     console.error("[RESERVATIONS] completeReservation error:", err);
@@ -335,14 +378,16 @@ export async function completeReservation(req: Request, res: Response) {
 export async function noShowReservation(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const [reservation] = await query<any[]>("SELECT id, status, user_id FROM reservations WHERE id = ?", [id]);
+    const [reservation] = await query<any[]>("SELECT id, status, user_id FROM reservations WHERE id = ? AND gym_id = ?", [id, gymId]);
     if (!reservation) {
       error(res, "Reservation introuvable", 404);
       return;
     }
 
-    await query<any>("UPDATE reservations SET status = 'NO_SHOW' WHERE id = ?", [id]);
+    await query<any>("UPDATE reservations SET status = 'NO_SHOW' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
       `INSERT INTO notifications (user_id, title, message, type)
@@ -363,6 +408,7 @@ export async function getAvailableSlots(req: Request, res: Response) {
   try {
     const date = req.query.date as string;
     const sessionId = req.query.session_id as string;
+    const gymId = req.user?.gymId || Number(req.query.gym_id) || 1;
 
     if (!date || !sessionId) {
       error(res, "Parametres date et session_id requis");
@@ -377,8 +423,8 @@ export async function getAvailableSlots(req: Request, res: Response) {
       `SELECT ts.*, s.name as session_name, s.capacity as session_capacity
        FROM time_slots ts
        JOIN sessions s ON s.id = ts.session_id
-       WHERE ts.session_id = ? AND ts.day_of_week = ? AND ts.is_active = TRUE`,
-      [sessionId, dayOfWeek]
+       WHERE s.gym_id = ? AND ts.session_id = ? AND ts.day_of_week = ? AND ts.is_active = TRUE`,
+      [gymId, sessionId, dayOfWeek]
     );
 
     // Compter les reservations existantes pour chaque creneau
@@ -387,8 +433,8 @@ export async function getAvailableSlots(req: Request, res: Response) {
         const [count] = await query<any[]>(
           `SELECT COUNT(*) as booked FROM reservations
            WHERE session_id = ? AND reservation_date = ? AND start_time = ?
-             AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
-          [sessionId, date, slot.start_time]
+             AND gym_id = ? AND status NOT IN ('CANCELLED', 'NO_SHOW')`,
+          [sessionId, date, slot.start_time, gymId]
         );
 
         const maxCapacity = slot.max_capacity || slot.session_capacity || 1;
@@ -421,10 +467,12 @@ export async function getAvailableSlots(req: Request, res: Response) {
 export async function getSessions(req: Request, res: Response) {
   try {
     const activeOnly = req.query.active !== "false";
-    const where = activeOnly ? "WHERE is_active = TRUE" : "";
+    const gymId = req.user?.gymId || Number(req.query.gym_id) || 1;
+    const where = `WHERE gym_id = ?${activeOnly ? " AND is_active = TRUE" : ""}`;
 
     const sessions = await query<any[]>(
-      `SELECT * FROM sessions ${where} ORDER BY name ASC`
+      `SELECT * FROM sessions ${where} ORDER BY name ASC`,
+      [gymId]
     );
 
     success(res, sessions);

@@ -3,7 +3,7 @@ import { query } from "../config/database.js";
 import { success, error, paginated, ErrorCode } from "../utils/response.js";
 import { logActivity } from "../services/activityLog.js";
 import { getAllSettings } from "../services/settings.js";
-import { canAccessUserResource, isAdminRole } from "../utils/access.js";
+import { canAccessUserResource, isAdminRole, requireGymContext } from "../utils/access.js";
 
 function generateInvoiceNumber(): string {
   const date = new Date();
@@ -22,6 +22,8 @@ export async function generateInvoice(req: Request, res: Response) {
       error(res, "payment_id requis", 400, ErrorCode.VALIDATION_ERROR);
       return;
     }
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [payment] = await query<any[]>(
       `SELECT p.*, u.full_name, u.email, u.phone, u.member_code,
@@ -30,8 +32,8 @@ export async function generateInvoice(req: Request, res: Response) {
        JOIN users u ON u.id = p.user_id
        LEFT JOIN subscriptions s ON s.id = p.subscription_id
        LEFT JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE p.id = ?`,
-      [payment_id]
+       WHERE p.id = ? AND p.gym_id = ?`,
+      [payment_id, gymId]
     );
 
     if (!payment) {
@@ -40,7 +42,7 @@ export async function generateInvoice(req: Request, res: Response) {
     }
 
     // Verifier si facture deja generee
-    const [existing] = await query<any[]>("SELECT id, invoice_number FROM invoices WHERE payment_id = ?", [payment_id]);
+    const [existing] = await query<any[]>("SELECT id, invoice_number FROM invoices WHERE payment_id = ? AND gym_id = ?", [payment_id, gymId]);
     if (existing) {
       success(res, { invoice_number: existing.invoice_number, already_exists: true }, 200, "Facture deja generee");
       return;
@@ -51,9 +53,9 @@ export async function generateInvoice(req: Request, res: Response) {
     const invoiceStatus = payment.status === "PAID" ? "PAID" : "DRAFT";
 
     const result = await query<any>(
-      `INSERT INTO invoices (user_id, payment_id, invoice_number, label, amount, status, due_date, paid_at)
-       VALUES (?, ?, ?, ?, ?, ?, CURDATE(), ?)`,
-      [payment.user_id, payment_id, invoiceNumber, label, payment.amount, invoiceStatus, payment.paid_at || null]
+      `INSERT INTO invoices (gym_id, user_id, payment_id, invoice_number, label, amount, status, due_date, paid_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)`,
+      [gymId, payment.user_id, payment_id, invoiceNumber, label, payment.amount, invoiceStatus, payment.paid_at || null]
     );
 
     await logActivity(req, { action: "CREATE", targetType: "PAYMENT", targetId: payment_id, description: `Facture ${invoiceNumber} generee pour ${payment.full_name}` });
@@ -77,6 +79,8 @@ export async function generateInvoice(req: Request, res: Response) {
 export async function getInvoicePdf(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const [invoice] = await query<any[]>(
       `SELECT i.*, u.full_name, u.email, u.phone, u.member_code,
@@ -84,8 +88,8 @@ export async function getInvoicePdf(req: Request, res: Response) {
        FROM invoices i
        JOIN users u ON u.id = i.user_id
        LEFT JOIN payments p ON p.id = i.payment_id
-       WHERE i.id = ?`,
-      [id]
+       WHERE i.id = ? AND i.gym_id = ?`,
+      [id, gymId]
     );
 
     if (!invoice) {
@@ -142,9 +146,11 @@ export async function getInvoices(req: Request, res: Response) {
     const offset = (page - 1) * limit;
     const userId = req.query.user_id as string || "";
     const status = req.query.status as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "WHERE 1=1";
-    const params: any[] = [];
+    let where = "WHERE i.gym_id = ?";
+    const params: any[] = [gymId];
 
     if (userId) { where += " AND i.user_id = ?"; params.push(userId); }
     if (status) { where += " AND i.status = ?"; params.push(status); }
@@ -174,12 +180,14 @@ export async function getUserInvoices(req: Request, res: Response) {
   try {
     const { userId } = req.params;
     if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const invoices = await query<any[]>(
       `SELECT i.*, p.payment_method FROM invoices i
        LEFT JOIN payments p ON p.id = i.payment_id
-       WHERE i.user_id = ? ORDER BY i.created_at DESC`,
-      [userId]
+       WHERE i.user_id = ? AND i.gym_id = ? ORDER BY i.created_at DESC`,
+      [userId, gymId]
     );
 
     success(res, invoices);

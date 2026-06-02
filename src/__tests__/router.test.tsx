@@ -13,7 +13,7 @@ describe("Router configuration", () => {
     expect(paths).toContain("/register");
   });
 
-  it("has member routes", () => {
+  it("has member routes with invoices", () => {
     const memberRoutes = router.routes[1];
     expect(memberRoutes.children).toBeDefined();
 
@@ -28,10 +28,22 @@ describe("Router configuration", () => {
     expect(paths).toContain("/membre/badges");
     expect(paths).toContain("/membre/parrainage");
     expect(paths).toContain("/membre/messages");
+    expect(paths).toContain("/membre/factures");
+  });
+
+  it("has coach routes", () => {
+    const coachRoutes = router.routes[2];
+    expect(coachRoutes.children).toBeDefined();
+
+    const paths = coachRoutes.children!.map((r) => r.path);
+    expect(paths).toContain("/coach");
+    expect(paths).toContain("/coach/seances");
+    expect(paths).toContain("/coach/membres");
+    expect(paths).toContain("/coach/programmes");
   });
 
   it("has admin routes", () => {
-    const adminRoutes = router.routes[2];
+    const adminRoutes = router.routes[3];
     expect(adminRoutes.children).toBeDefined();
 
     const paths = adminRoutes.children!.map((r) => r.path);
@@ -43,6 +55,22 @@ describe("Router configuration", () => {
     expect(paths).toContain("/admin/presences");
     expect(paths).toContain("/admin/analytics");
     expect(paths).toContain("/admin/settings");
+    expect(paths).toContain("/admin/factures");
+    expect(paths).toContain("/admin/abonnements");
+    expect(paths).toContain("/admin/boutique");
+    expect(paths).toContain("/admin/risques");
+  });
+
+  it("has platform routes", () => {
+    const platformRoutes = router.routes[4];
+    expect(platformRoutes.children).toBeDefined();
+
+    const paths = platformRoutes.children!.map((r) => r.path);
+    expect(paths).toContain("/plateforme");
+    expect(paths).toContain("/plateforme/salles");
+    expect(paths).toContain("/plateforme/salles/:id");
+    expect(paths).toContain("/plateforme/admins");
+    expect(paths).toContain("/plateforme/logs");
   });
 
   it("has kiosk route with lazy loading", () => {

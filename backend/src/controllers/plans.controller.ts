@@ -10,7 +10,10 @@ const planSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(500).optional().nullable(),
   price: z.number().positive("Le prix doit etre positif"),
-  duration_days: z.number().int().positive("La duree doit etre positive"),
+  duration_days: z.number().int().min(0, "Duree requise"),
+  plan_type: z.enum(["DURATION", "SESSIONS", "VIP"]).default("DURATION"),
+  sessions_count: z.number().int().positive().optional().nullable(),
+  features: z.string().max(1000).optional().nullable(),
   is_active: z.boolean().default(true),
 });
 
@@ -80,23 +83,19 @@ export async function createPlan(req: Request, res: Response) {
       return;
     }
 
-    const { name, description, price, duration_days, is_active } = parsed.data;
+    const { name, description, price, duration_days, plan_type, sessions_count, features, is_active } = parsed.data;
     const gymId = requireGymContext(req, res);
     if (!gymId) return;
 
     const result = await query<any>(
-      `INSERT INTO membership_plans (gym_id, name, description, price, duration_days, is_active)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [gymId, name, description || null, price, duration_days, is_active]
+      `INSERT INTO membership_plans (gym_id, name, description, price, duration_days, plan_type, sessions_count, features, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [gymId, name, description || null, price, duration_days, plan_type, sessions_count || null, features || null, is_active]
     );
 
     success(res, {
       id: result.insertId,
-      name,
-      description,
-      price,
-      duration_days,
-      is_active,
+      name, description, price, duration_days, plan_type, sessions_count, features, is_active,
     }, 201);
   } catch (err) {
     console.error("[PLANS] createPlan error:", err);
@@ -132,6 +131,9 @@ export async function updatePlan(req: Request, res: Response) {
     if (data.description !== undefined) { fields.push("description = ?"); values.push(data.description); }
     if (data.price !== undefined) { fields.push("price = ?"); values.push(data.price); }
     if (data.duration_days !== undefined) { fields.push("duration_days = ?"); values.push(data.duration_days); }
+    if (data.plan_type !== undefined) { fields.push("plan_type = ?"); values.push(data.plan_type); }
+    if (data.sessions_count !== undefined) { fields.push("sessions_count = ?"); values.push(data.sessions_count); }
+    if (data.features !== undefined) { fields.push("features = ?"); values.push(data.features); }
     if (data.is_active !== undefined) { fields.push("is_active = ?"); values.push(data.is_active); }
 
     if (fields.length === 0) {

@@ -1,12 +1,14 @@
 import { Request, Response } from "express";
 import { query } from "../config/database.js";
 import { success, error, ErrorCode } from "../utils/response.js";
+import { canAccessUserResource, requireGymContext } from "../utils/access.js";
 
 // ── GET /api/badges — Tous les badges disponibles ──────────────
 
 export async function getAllBadges(req: Request, res: Response) {
   try {
-    const badges = await query<any[]>("SELECT * FROM badges ORDER BY criteria_type, criteria_value");
+    const gymId = req.user?.gymId || Number(req.query.gym_id) || 1;
+    const badges = await query<any[]>("SELECT * FROM badges WHERE gym_id = ? ORDER BY criteria_type, criteria_value", [gymId]);
     success(res, badges);
   } catch (err) {
     console.error("[BADGES] getAllBadges error:", err);
@@ -19,17 +21,21 @@ export async function getAllBadges(req: Request, res: Response) {
 export async function getUserBadges(req: Request, res: Response) {
   try {
     const { userId } = req.params;
+    if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     const earned = await query<any[]>(
       `SELECT b.*, ub.earned_at
        FROM user_badges ub
        JOIN badges b ON b.id = ub.badge_id
-       WHERE ub.user_id = ?
+       JOIN users u ON u.id = ub.user_id
+       WHERE ub.user_id = ? AND u.gym_id = ? AND b.gym_id = ?
        ORDER BY ub.earned_at DESC`,
-      [userId]
+      [userId, gymId, gymId]
     );
 
-    const allBadges = await query<any[]>("SELECT * FROM badges ORDER BY criteria_type, criteria_value");
+    const allBadges = await query<any[]>("SELECT * FROM badges WHERE gym_id = ? ORDER BY criteria_type, criteria_value", [gymId]);
 
     // Marquer ceux obtenus
     const result = allBadges.map((badge) => {
@@ -49,19 +55,28 @@ export async function getUserBadges(req: Request, res: Response) {
 export async function checkAndAwardBadges(req: Request, res: Response) {
   try {
     const { userId } = req.params;
+    if (!canAccessUserResource(req, res, userId)) return;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
     const awarded: string[] = [];
+
+    const [user] = await query<any[]>("SELECT id, created_at FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [userId, gymId]);
+    if (!user) {
+      error(res, "Membre introuvable", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
 
     // Compter seances completees
     const [sessCount] = await query<any[]>(
-      "SELECT COUNT(*) as c FROM reservations WHERE user_id = ? AND status = 'COMPLETED'",
-      [userId]
+      "SELECT COUNT(*) as c FROM reservations WHERE gym_id = ? AND user_id = ? AND status = 'COMPLETED'",
+      [gymId, userId]
     );
     const completedSessions = sessCount.c;
 
     // Badges SESSIONS_COUNT
     const sessionBadges = await query<any[]>(
-      "SELECT * FROM badges WHERE criteria_type = 'SESSIONS_COUNT' AND criteria_value <= ?",
-      [completedSessions]
+      "SELECT * FROM badges WHERE gym_id = ? AND criteria_type = 'SESSIONS_COUNT' AND criteria_value <= ?",
+      [gymId, completedSessions]
     );
 
     for (const badge of sessionBadges) {
@@ -78,20 +93,19 @@ export async function checkAndAwardBadges(req: Request, res: Response) {
 
         // Notification
         await query<any>(
-          `INSERT INTO notifications (user_id, title, message, type)
-           VALUES (?, 'Badge obtenu !', ?, 'INFO')`,
-          [userId, `Felicitations ! Vous avez obtenu le badge "${badge.name}" : ${badge.description}`]
+          `INSERT INTO notifications (gym_id, user_id, title, message, type)
+           VALUES (?, ?, 'Badge obtenu !', ?, 'INFO')`,
+          [gymId, userId, `Felicitations ! Vous avez obtenu le badge "${badge.name}" : ${badge.description}`]
         );
       }
     }
 
     // Badges MONTHS_ACTIVE
-    const [memberSince] = await query<any[]>("SELECT created_at FROM users WHERE id = ?", [userId]);
-    if (memberSince) {
-      const monthsActive = Math.floor((Date.now() - new Date(memberSince.created_at).getTime()) / (30 * 86400000));
+    if (user) {
+      const monthsActive = Math.floor((Date.now() - new Date(user.created_at).getTime()) / (30 * 86400000));
       const monthBadges = await query<any[]>(
-        "SELECT * FROM badges WHERE criteria_type = 'MONTHS_ACTIVE' AND criteria_value <= ?",
-        [monthsActive]
+        "SELECT * FROM badges WHERE gym_id = ? AND criteria_type = 'MONTHS_ACTIVE' AND criteria_value <= ?",
+        [gymId, monthsActive]
       );
       for (const badge of monthBadges) {
         const [exists] = await query<any[]>("SELECT id FROM user_badges WHERE user_id = ? AND badge_id = ?", [userId, badge.id]);
@@ -99,8 +113,8 @@ export async function checkAndAwardBadges(req: Request, res: Response) {
           await query<any>("INSERT INTO user_badges (user_id, badge_id) VALUES (?, ?)", [userId, badge.id]);
           awarded.push(badge.name);
           await query<any>(
-            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Badge obtenu !', ?, 'INFO')`,
-            [userId, `Felicitations ! Badge "${badge.name}" obtenu !`]
+            `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Badge obtenu !', ?, 'INFO')`,
+            [gymId, userId, `Felicitations ! Badge "${badge.name}" obtenu !`]
           );
         }
       }
@@ -122,6 +136,20 @@ export async function awardBadge(req: Request, res: Response) {
       error(res, "user_id et badge_id requis", 400, ErrorCode.VALIDATION_ERROR);
       return;
     }
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
+    const [user] = await query<any[]>("SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [user_id, gymId]);
+    if (!user) {
+      error(res, "Membre introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
+
+    const [badge] = await query<any[]>("SELECT name, description FROM badges WHERE id = ? AND gym_id = ?", [badge_id, gymId]);
+    if (!badge) {
+      error(res, "Badge introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
+      return;
+    }
 
     const [exists] = await query<any[]>("SELECT id FROM user_badges WHERE user_id = ? AND badge_id = ?", [user_id, badge_id]);
     if (exists) {
@@ -131,11 +159,10 @@ export async function awardBadge(req: Request, res: Response) {
 
     await query<any>("INSERT INTO user_badges (user_id, badge_id) VALUES (?, ?)", [user_id, badge_id]);
 
-    const [badge] = await query<any[]>("SELECT name, description FROM badges WHERE id = ?", [badge_id]);
     if (badge) {
       await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Badge obtenu !', ?, 'INFO')`,
-        [user_id, `Badge "${badge.name}" attribue par l'administration !`]
+        `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Badge obtenu !', ?, 'INFO')`,
+        [gymId, user_id, `Badge "${badge.name}" attribue par l'administration !`]
       );
     }
 

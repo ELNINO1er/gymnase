@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, BarChart3, Bell, Calendar, CreditCard, DoorOpen, Download, FileText, Gift, Home, Layers, LogOut, Mail, MapPin, Receipt, Settings, ShieldCheck, ShoppingBag, Dumbbell, UserCheck, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, Bell, Calendar, CreditCard, DoorOpen, Download, FileText, Gift, Home, Layers, LogOut, Mail, MapPin, Receipt, Settings, ShieldCheck, ShoppingBag, Dumbbell, UserCheck, Users } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { platformApi } from "../services/api";
 
 const NAV_ITEMS = [
   { path: "/admin", label: "Dashboard", icon: Home },
@@ -25,13 +26,22 @@ const NAV_ITEMS = [
 ];
 
 export function AdminLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isPlatformAdmin, refreshUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const backToPlatform = async () => {
+    try {
+      const { data } = await platformApi.switchGym(null);
+      localStorage.setItem("token", data.data.token);
+      await refreshUser();
+      navigate("/plateforme");
+    } catch {}
   };
 
   return (
@@ -47,6 +57,11 @@ export function AdminLayout() {
             </span>
           </Link>
           <div className="flex items-center gap-2">
+            {isPlatformAdmin && (
+              <button onClick={backToPlatform} className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition hidden sm:inline-flex">
+                <ArrowLeft size={12} /> Plateforme
+              </button>
+            )}
             <Link to="/membre" className="text-xs text-zinc-500 hover:text-zinc-300 transition hidden sm:inline">
               Vue membre
             </Link>

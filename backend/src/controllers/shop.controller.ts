@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error, paginated, ErrorCode } from "../utils/response.js";
 import { logActivity } from "../services/activityLog.js";
+import { requireGymContext } from "../utils/access.js";
 
 const productSchema = z.object({
   name: z.string().min(2).max(150),
@@ -28,9 +29,10 @@ const saleSchema = z.object({
 
 export async function getProducts(req: Request, res: Response) {
   try {
+    const gymId = req.user?.gymId || Number(req.query.gym_id) || 1;
     const activeOnly = req.query.active !== "false";
-    const where = activeOnly ? "WHERE is_active = TRUE" : "";
-    const products = await query<any[]>(`SELECT * FROM products ${where} ORDER BY category, name`);
+    const where = `WHERE gym_id = ?${activeOnly ? " AND is_active = TRUE" : ""}`;
+    const products = await query<any[]>(`SELECT * FROM products ${where} ORDER BY category, name`, [gymId]);
     success(res, products);
   } catch (err) {
     console.error("[SHOP] getProducts error:", err);
@@ -46,9 +48,11 @@ export async function createProduct(req: Request, res: Response) {
       return;
     }
     const d = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
     const result = await query<any>(
-      "INSERT INTO products (name, description, price, category, stock_quantity, image_url, is_active) VALUES (?,?,?,?,?,?,?)",
-      [d.name, d.description || null, d.price, d.category, d.stock_quantity, d.image_url || null, d.is_active]
+      "INSERT INTO products (gym_id, name, description, price, category, stock_quantity, image_url, is_active) VALUES (?,?,?,?,?,?,?,?)",
+      [gymId, d.name, d.description || null, d.price, d.category, d.stock_quantity, d.image_url || null, d.is_active]
     );
     await logActivity(req, { action: "CREATE", targetType: "SETTING", targetId: result.insertId, description: `Produit cree : ${d.name}` });
     success(res, { id: result.insertId, ...d }, 201, "Produit cree");
@@ -67,6 +71,8 @@ export async function updateProduct(req: Request, res: Response) {
       return;
     }
     const d = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
     const fields: string[] = [];
     const values: any[] = [];
     if (d.name !== undefined) { fields.push("name=?"); values.push(d.name); }
@@ -77,8 +83,8 @@ export async function updateProduct(req: Request, res: Response) {
     if (d.image_url !== undefined) { fields.push("image_url=?"); values.push(d.image_url); }
     if (d.is_active !== undefined) { fields.push("is_active=?"); values.push(d.is_active); }
     if (fields.length === 0) { error(res, "Rien a modifier"); return; }
-    values.push(id);
-    await query<any>(`UPDATE products SET ${fields.join(",")} WHERE id=?`, values);
+    values.push(id, gymId);
+    await query<any>(`UPDATE products SET ${fields.join(",")} WHERE id=? AND gym_id=?`, values);
     success(res, null, 200, "Produit modifie");
   } catch (err) {
     console.error("[SHOP] updateProduct error:", err);
@@ -88,7 +94,9 @@ export async function updateProduct(req: Request, res: Response) {
 
 export async function deleteProduct(req: Request, res: Response) {
   try {
-    await query<any>("UPDATE products SET is_active = FALSE WHERE id = ?", [req.params.id]);
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+    await query<any>("UPDATE products SET is_active = FALSE WHERE id = ? AND gym_id = ?", [req.params.id, gymId]);
     success(res, null, 200, "Produit desactive");
   } catch (err) {
     console.error("[SHOP] deleteProduct error:", err);
@@ -107,13 +115,23 @@ export async function createSale(req: Request, res: Response) {
     }
 
     const { user_id, payment_method, items, notes } = parsed.data;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
+    if (user_id) {
+      const [buyer] = await query<any[]>("SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [user_id, gymId]);
+      if (!buyer) {
+        error(res, "Acheteur introuvable dans cette salle", 404, ErrorCode.NOT_FOUND);
+        return;
+      }
+    }
 
     // Calculer le total et verifier le stock
     let totalAmount = 0;
     const resolvedItems: { product_id: number; quantity: number; unit_price: number; name: string }[] = [];
 
     for (const item of items) {
-      const [product] = await query<any[]>("SELECT id, name, price, stock_quantity FROM products WHERE id = ? AND is_active = TRUE", [item.product_id]);
+      const [product] = await query<any[]>("SELECT id, name, price, stock_quantity FROM products WHERE id = ? AND gym_id = ? AND is_active = TRUE", [item.product_id, gymId]);
       if (!product) {
         error(res, `Produit #${item.product_id} introuvable`, 404, ErrorCode.NOT_FOUND);
         return;
@@ -128,8 +146,8 @@ export async function createSale(req: Request, res: Response) {
 
     // Creer la vente
     const saleResult = await query<any>(
-      "INSERT INTO sales (user_id, total_amount, payment_method, status, notes) VALUES (?,?,?,'PAID',?)",
-      [user_id || null, totalAmount, payment_method, notes || null]
+      "INSERT INTO sales (gym_id, user_id, total_amount, payment_method, status, notes) VALUES (?,?,?,?,'PAID',?)",
+      [gymId, user_id || null, totalAmount, payment_method, notes || null]
     );
 
     // Creer les lignes + decrémenter stock
@@ -139,8 +157,8 @@ export async function createSale(req: Request, res: Response) {
         [saleResult.insertId, item.product_id, item.quantity, item.unit_price]
       );
       await query<any>(
-        "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?",
-        [item.quantity, item.product_id]
+        "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND gym_id = ?",
+        [item.quantity, item.product_id, gymId]
       );
     }
 
@@ -163,13 +181,17 @@ export async function getSales(req: Request, res: Response) {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     const offset = (page - 1) * limit;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    const [cnt] = await query<any[]>("SELECT COUNT(*) as total FROM sales");
+    const [cnt] = await query<any[]>("SELECT COUNT(*) as total FROM sales WHERE gym_id = ?", [gymId]);
 
     const sales = await query<any[]>(
       `SELECT s.*, u.full_name as buyer_name
        FROM sales s LEFT JOIN users u ON u.id = s.user_id
-       ORDER BY s.created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`
+       WHERE s.gym_id = ?
+       ORDER BY s.created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
+      [gymId]
     );
 
     // Charger les items pour chaque vente
@@ -189,15 +211,19 @@ export async function getSales(req: Request, res: Response) {
 
 export async function getSaleStats(req: Request, res: Response) {
   try {
-    const [today] = await query<any[]>("SELECT COALESCE(SUM(total_amount),0) as revenue, COUNT(*) as count FROM sales WHERE DATE(created_at) = CURDATE() AND status = 'PAID'");
-    const [month] = await query<any[]>("SELECT COALESCE(SUM(total_amount),0) as revenue, COUNT(*) as count FROM sales WHERE MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) AND status = 'PAID'");
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+    const [today] = await query<any[]>("SELECT COALESCE(SUM(total_amount),0) as revenue, COUNT(*) as count FROM sales WHERE gym_id = ? AND DATE(created_at) = CURDATE() AND status = 'PAID'", [gymId]);
+    const [month] = await query<any[]>("SELECT COALESCE(SUM(total_amount),0) as revenue, COUNT(*) as count FROM sales WHERE gym_id = ? AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) AND status = 'PAID'", [gymId]);
     const topProducts = await query<any[]>(
       `SELECT p.name, SUM(si.quantity) as total_sold, SUM(si.quantity * si.unit_price) as revenue
        FROM sale_items si JOIN products p ON p.id = si.product_id
        JOIN sales s ON s.id = si.sale_id AND s.status = 'PAID'
-       GROUP BY p.id, p.name ORDER BY total_sold DESC LIMIT 5`
+       WHERE s.gym_id = ?
+       GROUP BY p.id, p.name ORDER BY total_sold DESC LIMIT 5`,
+      [gymId]
     );
-    const lowStock = await query<any[]>("SELECT name, stock_quantity FROM products WHERE is_active = TRUE AND stock_quantity <= 5 ORDER BY stock_quantity ASC");
+    const lowStock = await query<any[]>("SELECT name, stock_quantity FROM products WHERE gym_id = ? AND is_active = TRUE AND stock_quantity <= 5 ORDER BY stock_quantity ASC", [gymId]);
 
     success(res, {
       today: { revenue: Number(today.revenue), count: today.count },

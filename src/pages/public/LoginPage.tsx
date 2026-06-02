@@ -30,13 +30,20 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
       const isAdminUser = ["ADMIN", "SUPER_ADMIN"].includes(user.role);
       const isPlatformAdmin = Boolean(user.is_platform_admin);
 
-      if (adminOnly && !isAdminUser) {
+      const isCoachUser = user.role === "COACH";
+
+      if (adminOnly && !isAdminUser && !isCoachUser) {
         logout();
         setError("Acces reserve a l'administration.");
         return;
       }
 
-      navigate(isPlatformAdmin && !user.gym_id ? "/plateforme" : isAdminUser ? "/admin" : "/membre");
+      navigate(
+        isPlatformAdmin && !user.gym_id ? "/plateforme" :
+        isAdminUser ? "/admin" :
+        isCoachUser ? "/coach" :
+        "/membre"
+      );
     } else {
       setError(result.error || "Erreur de connexion");
     }
