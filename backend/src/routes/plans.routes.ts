@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { getPlans, getPlanById, createPlan, updatePlan, deletePlan } from "../controllers/plans.controller.js";
-import { authGuard, roleGuard } from "../middlewares/auth.js";
+import { authGuard, optionalAuthGuard, roleGuard } from "../middlewares/auth.js";
 
 const router = Router();
 
 // Public : consulter les plans actifs
-router.get("/", getPlans);
-router.get("/:id", getPlanById);
+router.get("/", optionalAuthGuard, getPlans);
+router.get("/:id", optionalAuthGuard, getPlanById);
 
 // Admin : gerer les plans
 router.post("/", authGuard, roleGuard("ADMIN", "SUPER_ADMIN"), createPlan);

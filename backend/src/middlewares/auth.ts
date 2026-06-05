@@ -37,6 +37,25 @@ export function authGuard(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export function optionalAuthGuard(req: Request, _res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    next();
+    return;
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    req.user = jwt.verify(token, env.jwt.secret) as JwtPayload;
+  } catch {
+    // Public routes must keep working when no valid session is available.
+  }
+
+  next();
+}
+
 export function roleGuard(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
