@@ -380,6 +380,7 @@ export async function getPlatformLogs(req: Request, res: Response) {
 export async function switchGym(req: Request, res: Response) {
   try {
     const gymId = Number(req.body.gym_id);
+    let gymName: string | null = null;
 
     if (!req.user?.isPlatformAdmin) {
       error(res, "Reserve aux admins plateforme", 403);
@@ -392,6 +393,7 @@ export async function switchGym(req: Request, res: Response) {
         error(res, "Salle introuvable", 404);
         return;
       }
+      gymName = gyms[0].name;
     }
 
     // Generate new token with updated gymId
@@ -403,7 +405,7 @@ export async function switchGym(req: Request, res: Response) {
       isPlatformAdmin: true,
     });
 
-    success(res, { token, gym_id: gymId || null });
+    success(res, { token, gym_id: gymId || null, gym_name: gymName });
   } catch (err) {
     console.error("[PLATFORM] switchGym error:", err);
     error(res, "Erreur lors du changement de salle", 500);

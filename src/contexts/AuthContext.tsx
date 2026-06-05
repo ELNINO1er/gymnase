@@ -12,6 +12,7 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   gym_id?: number | null;
+  gym_name?: string | null;
   is_platform_admin?: boolean;
   member_code: string;
   sport_goal?: string;

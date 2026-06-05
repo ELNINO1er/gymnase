@@ -34,6 +34,12 @@ const updateProfileSchema = z.object({
   sport_goal: z.string().max(255).optional().nullable(),
 });
 
+async function getGymName(gymId?: number | null) {
+  if (!gymId) return null;
+  const gyms = await query<any[]>("SELECT name FROM gyms WHERE id = ?", [gymId]);
+  return gyms[0]?.name || null;
+}
+
 // ── Register ───────────────────────────────────────────────────
 
 export async function register(req: Request, res: Response) {
@@ -180,6 +186,7 @@ export async function login(req: Request, res: Response) {
       gymId: gymId ?? null,
       isPlatformAdmin: Boolean(user.is_platform_admin),
     });
+    const gymName = await getGymName(gymId);
 
     // Charger abonnement actif si membre
     let activeSubscription = null;
@@ -205,6 +212,7 @@ export async function login(req: Request, res: Response) {
         role: user.role,
         status: user.status,
         gym_id: gymId,
+        gym_name: gymName,
         is_platform_admin: Boolean(user.is_platform_admin),
         member_code: user.member_code,
         sport_goal: user.sport_goal,
@@ -239,25 +247,27 @@ export async function me(req: Request, res: Response) {
     }
 
     const user = users[0];
+    const effectiveGymId = user.is_platform_admin ? (req.user.gymId ?? user.gym_id ?? null) : user.gym_id;
+    const gymName = await getGymName(effectiveGymId);
 
     // Abonnement actif
     const subs = await query<any[]>(
       `SELECT s.id, s.start_date, s.end_date, s.status, mp.name as plan_name, mp.price as plan_price, mp.duration_days
        FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
+       WHERE s.user_id = ? AND s.gym_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
        ORDER BY s.end_date DESC LIMIT 1`,
-      [user.id]
+      [user.id, effectiveGymId || 0]
     );
 
     // Statistiques rapides
     const [resvStats] = await query<any[]>(
-      `SELECT COUNT(*) as total FROM reservations WHERE user_id = ? AND status NOT IN ('CANCELLED')`,
-      [user.id]
+      `SELECT COUNT(*) as total FROM reservations WHERE user_id = ? AND gym_id = ? AND status NOT IN ('CANCELLED')`,
+      [user.id, effectiveGymId || 0]
     );
     const [payStats] = await query<any[]>(
-      `SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE user_id = ? AND status = 'PAID'`,
-      [user.id]
+      `SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE user_id = ? AND gym_id = ? AND status = 'PAID'`,
+      [user.id, effectiveGymId || 0]
     );
 
     // Notifications non lues
@@ -268,6 +278,8 @@ export async function me(req: Request, res: Response) {
 
     success(res, {
       ...user,
+      gym_id: effectiveGymId,
+      gym_name: gymName,
       subscription: subs[0] || null,
       stats: {
         total_reservations: resvStats?.total || 0,
@@ -417,11 +429,12 @@ export async function refreshToken(req: Request, res: Response) {
       return;
     }
 
+    const effectiveGymId = user.is_platform_admin ? (req.user.gymId ?? null) : (user.gym_id ?? null);
     const token = generateToken({
       userId: user.id,
       role: user.role,
       email: user.email,
-      gymId: user.gym_id ?? null,
+      gymId: effectiveGymId,
       isPlatformAdmin: Boolean(user.is_platform_admin),
     });
 

@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, BarChart3, Bell, Calendar, CreditCard, DoorOpen, Download, FileText, Gift, Home, Layers, LogOut, Mail, MapPin, Receipt, Settings, ShieldCheck, ShoppingBag, Dumbbell, UserCheck, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, Bell, Building2, Calendar, CreditCard, DoorOpen, Download, FileText, Gift, Home, Layers, LogOut, Mail, MapPin, Receipt, Settings, ShieldCheck, ShoppingBag, Dumbbell, UserCheck, Users } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { platformApi } from "../services/api";
 
@@ -57,6 +57,12 @@ export function AdminLayout() {
             </span>
           </Link>
           <div className="flex items-center gap-2">
+            {user?.gym_name && (
+              <span className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs font-bold text-zinc-200">
+                <Building2 size={13} className="text-amber-400" />
+                {user.gym_name}
+              </span>
+            )}
             {isPlatformAdmin && (
               <button onClick={backToPlatform} className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition hidden sm:inline-flex">
                 <ArrowLeft size={12} /> Plateforme
