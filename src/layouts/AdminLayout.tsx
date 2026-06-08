@@ -33,6 +33,7 @@ export function AdminLayout() {
   const navigate = useNavigate();
 
   const basePath = `/g/${slug || ""}/admin`;
+  const gymDisplayName = activeGymName || user?.gym_name || "Salle";
 
   const handleLogout = () => {
     logout();
@@ -54,14 +55,14 @@ export function AdminLayout() {
               <ShieldCheck size={20} />
             </span>
             <span className="hidden sm:inline">
-              Elite <span className="text-amber-400">Admin</span>
+              <span className="text-amber-400">{gymDisplayName}</span> Admin
             </span>
           </Link>
           <div className="flex items-center gap-2">
-            {(activeGymName || user?.gym_name) && (
+            {gymDisplayName && (
               <span className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs font-bold text-zinc-200">
                 <Building2 size={13} className="text-amber-400" />
-                {activeGymName || user?.gym_name}
+                {gymDisplayName}
               </span>
             )}
             {isPlatformAdmin && (

@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { dashboardApi, attendanceApi } from "../../services/api";
 import { Users, Calendar, CreditCard, TrendingUp, Bell, Clock, AlertTriangle, UserCheck, DoorOpen } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
 
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n) + " FCFA";
 
 export function AdminDashboard() {
   const { slug } = useParams();
+  const { user } = useAuth();
   const base = `/g/${slug}/admin`;
+  const gymName = user?.active_gym_name || user?.gym_name || "la salle";
   const [summary, setSummary] = useState<any>(null);
   const [alerts, setAlerts] = useState<any>(null);
   const [inGym, setInGym] = useState(0);
@@ -34,7 +37,7 @@ export function AdminDashboard() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <div className="text-zinc-400 text-sm">Tableau de bord</div>
-          <h1 className="text-2xl font-bold">Administration Elite Gym</h1>
+          <h1 className="text-2xl font-bold">Administration {gymName}</h1>
         </div>
         <div className="flex items-center gap-3">
           {summary.unread_notifications > 0 && (
