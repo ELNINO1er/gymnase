@@ -172,20 +172,22 @@ export async function updateGymStatus(req: Request, res: Response) {
       return;
     }
 
-    await query<any>(
-      `UPDATE gyms
-       SET status = ?, verified_by = CASE WHEN ? = 'ACTIVE' THEN ? ELSE verified_by END, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [parsed.data.status, parsed.data.status, req.user?.userId || null, id]
-    );
-
     const gyms = await query<any[]>("SELECT * FROM gyms WHERE id = ?", [id]);
     if (gyms.length === 0) {
       error(res, "Salle introuvable", 404);
       return;
     }
 
-    success(res, gyms[0]);
+    await query<any>(
+      `UPDATE gyms
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [parsed.data.status, id]
+    );
+
+    const updatedGyms = await query<any[]>("SELECT * FROM gyms WHERE id = ?", [id]);
+
+    success(res, updatedGyms[0]);
   } catch (err) {
     console.error("[PLATFORM] updateGymStatus error:", err);
     error(res, "Erreur lors de la mise a jour de la salle", 500);
