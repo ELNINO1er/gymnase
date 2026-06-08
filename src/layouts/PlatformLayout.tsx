@@ -14,6 +14,7 @@ const navItems = [
 interface GymOption {
   id: number;
   name: string;
+  slug: string;
   status: string;
 }
 
@@ -36,28 +37,16 @@ export function PlatformLayout() {
     navigate("/");
   };
 
-  async function switchToGym(gymId: number) {
+  async function switchToGym(gym: GymOption) {
     setSwitching(true);
     try {
-      const { data } = await platformApi.switchGym(gymId);
+      const { data } = await platformApi.switchGym(gym.slug);
       localStorage.setItem("token", data.data.token);
       await refreshUser();
-      navigate("/admin");
+      navigate(`/g/${gym.slug}/admin`);
     } finally {
       setSwitching(false);
       setShowGymSelector(false);
-    }
-  }
-
-  async function backToPlatform() {
-    setSwitching(true);
-    try {
-      const { data } = await platformApi.switchGym(null);
-      localStorage.setItem("token", data.data.token);
-      await refreshUser();
-      navigate("/plateforme");
-    } finally {
-      setSwitching(false);
     }
   }
 
@@ -99,7 +88,7 @@ export function PlatformLayout() {
                   <button
                     key={gym.id}
                     disabled={switching}
-                    onClick={() => switchToGym(gym.id)}
+                    onClick={() => switchToGym(gym)}
                     className="flex items-center justify-between p-3 rounded-lg bg-zinc-950 border border-zinc-800 hover:border-amber-400/50 transition text-left disabled:opacity-50"
                   >
                     <div>

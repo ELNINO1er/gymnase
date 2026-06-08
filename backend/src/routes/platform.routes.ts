@@ -8,6 +8,7 @@ import {
   getPlatformLogs,
   getPlatformRevenue,
   getPlatformSummary,
+  leaveGym,
   listGyms,
   listPlatformAdmins,
   switchGym,
@@ -21,12 +22,13 @@ router.use(authGuard, platformGuard);
 router.get("/summary", getPlatformSummary);
 router.get("/gyms", listGyms);
 router.post("/gyms", createGym);
-router.get("/gyms/:id", getGymDetail);
+router.get("/gyms/:slugOrId", getGymDetail);
 router.put("/gyms/:id/status", updateGymStatus);
 router.post("/gyms/:id/admins", createGymAdmin);
 router.get("/revenue", getPlatformRevenue);
 router.get("/logs", getPlatformLogs);
 router.post("/switch-gym", switchGym);
+router.post("/leave-gym", leaveGym);
 router.get("/admins", listPlatformAdmins);
 router.post("/admins", createPlatformAdmin);
 

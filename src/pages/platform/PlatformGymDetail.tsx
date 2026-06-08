@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Building2, Users, DollarSign, UserPlus, Shield } from "lucide-react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, ArrowRight, Building2, Users, DollarSign, UserPlus, Shield } from "lucide-react";
 import { platformApi } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface GymDetail {
   id: number;
@@ -29,7 +30,9 @@ interface GymDetail {
 }
 
 export function PlatformGymDetail() {
-  const { id } = useParams();
+  const { refreshUser } = useAuth();
+  const navigate = useNavigate();
+  const { slugOrId } = useParams();
   const [gym, setGym] = useState<GymDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdminForm, setShowAdminForm] = useState(false);
@@ -40,21 +43,21 @@ export function PlatformGymDetail() {
   async function load() {
     setLoading(true);
     try {
-      const { data } = await platformApi.getGymDetail(Number(id));
+      const { data } = await platformApi.getGymDetail(slugOrId || "");
       setGym(data.data);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); }, [slugOrId]);
 
   async function createAdmin(e: React.FormEvent) {
     e.preventDefault();
     if (!adminForm.full_name.trim() || !adminForm.email.trim()) return;
     setSavingAdmin(true);
     try {
-      await platformApi.createGymAdmin(Number(id), adminForm);
+      await platformApi.createGymAdmin(gym!.id, adminForm);
       setLastAdminLogin({ email: adminForm.email, password: adminForm.password });
       setAdminForm({ full_name: "", email: "", phone: "", password: "" });
       setShowAdminForm(false);
@@ -85,9 +88,21 @@ export function PlatformGymDetail() {
             </div>
           </div>
         </div>
-        <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${statusColor}`}>
-          {gym.status === "ACTIVE" ? "Active" : gym.status === "SUSPENDED" ? "Suspendue" : "En attente"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${statusColor}`}>
+            {gym.status === "ACTIVE" ? "Active" : gym.status === "SUSPENDED" ? "Suspendue" : "En attente"}
+          </span>
+          {gym.status === "ACTIVE" && (
+            <button onClick={async () => {
+              const { data } = await platformApi.switchGym(gym.slug);
+              localStorage.setItem("token", data.data.token);
+              await refreshUser();
+              navigate(`/g/${gym.slug}/admin`);
+            }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-400 text-zinc-950 text-sm font-bold">
+              <ArrowRight size={15} /> Administrer
+            </button>
+          )}
+        </div>
       </div>
 
       {gym.owner_name && (

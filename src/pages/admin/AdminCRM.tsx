@@ -7,7 +7,7 @@ import { useConfirm } from "../../components/ui";
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n) + " FCFA";
 
 export function AdminCRM() {
-  const { id } = useParams();
+  const { id, slug } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ export function AdminCRM() {
   return (
     <div>
       {dialog}
-      <button onClick={() => navigate("/admin/membres")} className="text-zinc-400 hover:text-white text-sm flex items-center gap-1 mb-4">
+      <button onClick={() => navigate(`/g/${slug}/admin/membres`)} className="text-zinc-400 hover:text-white text-sm flex items-center gap-1 mb-4">
         <ChevronLeft size={16} /> Retour aux membres
       </button>
 

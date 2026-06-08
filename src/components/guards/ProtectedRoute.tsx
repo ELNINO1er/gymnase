@@ -11,7 +11,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, roles, loginPath = "/login", platformOnly = false, requireGym = false }: ProtectedRouteProps) {
-  const { isAuthenticated, user, loading } = useAuth();
+  const { isAuthenticated, user, loading, hasGymContext } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -36,7 +36,8 @@ export function ProtectedRoute({ children, roles, loginPath = "/login", platform
     return <Navigate to="/" replace />;
   }
 
-  if (requireGym && user?.is_platform_admin && !user?.gym_id) {
+  // Platform admin without an active gym cannot access gym-scoped routes
+  if (requireGym && !hasGymContext) {
     return <Navigate to="/plateforme" replace />;
   }
 

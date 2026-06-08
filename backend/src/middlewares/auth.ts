@@ -8,6 +8,8 @@ export interface JwtPayload {
   email: string;
   gymId?: number | null;
   isPlatformAdmin?: boolean;
+  activeGymId?: number | null;
+  activeGymSlug?: string | null;
 }
 
 declare global {
@@ -68,13 +70,39 @@ export function roleGuard(...roles: string[]) {
       return;
     }
 
-    if (req.user.isPlatformAdmin && !req.user.gymId) {
+    // Platform admin must have selected a gym to access gym-scoped routes
+    if (req.user.isPlatformAdmin && !req.user.activeGymId && !req.user.gymId) {
       res.status(403).json({ success: false, message: "Selectionnez une salle avant d'acceder a cet espace", error: "GYM_CONTEXT_REQUIRED" });
       return;
     }
 
     next();
   };
+}
+
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    res.status(401).json({ success: false, message: "Non authentifie", error: "TOKEN_MISSING" });
+    return;
+  }
+
+  const role = req.user.role;
+  if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
+    res.status(403).json({ success: false, message: "Acces reserve aux administrateurs", error: "FORBIDDEN" });
+    return;
+  }
+
+  // Determine effective gym context
+  const effectiveGymId = req.user.isPlatformAdmin
+    ? req.user.activeGymId
+    : req.user.gymId;
+
+  if (!effectiveGymId) {
+    res.status(403).json({ success: false, message: "Selectionnez une salle avant d'acceder a cet espace", error: "GYM_CONTEXT_REQUIRED" });
+    return;
+  }
+
+  next();
 }
 
 export function platformGuard(req: Request, res: Response, next: NextFunction) {

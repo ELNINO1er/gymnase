@@ -1,5 +1,6 @@
 import { Request } from "express";
 import { query } from "../config/database.js";
+import { getCurrentGymId } from "../utils/access.js";
 
 export type LogAction =
   | "CREATE" | "UPDATE" | "DELETE"
@@ -31,11 +32,13 @@ export async function logActivity(req: Request, entry: LogEntry) {
     const adminId = req.user.userId;
     const adminName = req.user.email || `User #${adminId}`;
     const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const gymId = getCurrentGymId(req);
 
     await query<any>(
-      `INSERT INTO activity_logs (admin_id, admin_name, action, target_type, target_id, description, metadata, ip_address)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO activity_logs (gym_id, admin_id, admin_name, action, target_type, target_id, description, metadata, ip_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        gymId,
         adminId,
         adminName,
         entry.action,

@@ -136,8 +136,8 @@ export async function createSubscription(req: Request, res: Response) {
     // Si auto_activate, passer l'utilisateur en ACTIVE/MEMBER
     if (auto_activate) {
       await query<any>(
-        "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND role = 'VISITOR'",
-        [user_id]
+        "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND gym_id = ? AND role = 'VISITOR'",
+        [user_id, gymId]
       );
     }
 
@@ -199,15 +199,15 @@ export async function activateSubscription(req: Request, res: Response) {
 
     // Passer l'utilisateur en ACTIVE/MEMBER si PENDING
     await query<any>(
-      "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND status IN ('PENDING', 'EXPIRED')",
-      [sub.user_id]
+      "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND gym_id = ? AND status IN ('PENDING', 'EXPIRED')",
+      [sub.user_id, gymId]
     );
 
     // Notification
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Abonnement active', 'Votre abonnement est maintenant actif. Bon entrainement !', 'SUBSCRIPTION')`,
-      [sub.user_id]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Abonnement active', 'Votre abonnement est maintenant actif. Bon entrainement !', 'SUBSCRIPTION')`,
+      [gymId, sub.user_id]
     );
 
     success(res, { message: `Abonnement active pour ${sub.full_name}` });
@@ -246,15 +246,15 @@ export async function cancelSubscription(req: Request, res: Response) {
 
     // Annuler le paiement associe s'il est PENDING
     await query<any>(
-      "UPDATE payments SET status = 'CANCELLED' WHERE subscription_id = ? AND status = 'PENDING'",
-      [id]
+      "UPDATE payments SET status = 'CANCELLED' WHERE subscription_id = ? AND gym_id = ? AND status = 'PENDING'",
+      [id, gymId]
     );
 
     // Notification
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Abonnement annule', 'Votre abonnement a ete annule.', 'SUBSCRIPTION')`,
-      [sub.user_id]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Abonnement annule', 'Votre abonnement a ete annule.', 'SUBSCRIPTION')`,
+      [gymId, sub.user_id]
     );
 
     success(res, { message: `Abonnement annule pour ${sub.full_name}` });

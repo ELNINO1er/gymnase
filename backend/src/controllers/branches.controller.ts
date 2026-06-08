@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error, ErrorCode } from "../utils/response.js";
 import { logActivity } from "../services/activityLog.js";
+import { requireGymContext } from "../utils/access.js";
 
 const branchSchema = z.object({
   name: z.string().min(2).max(150),
@@ -16,10 +17,14 @@ const branchSchema = z.object({
 // GET /api/branches
 export async function getBranches(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const branches = await query<any[]>(
       `SELECT b.*,
-        (SELECT COUNT(*) FROM users u WHERE u.branch_id = b.id AND u.status != 'DELETED') as member_count
-       FROM branches b ORDER BY b.name`
+        (SELECT COUNT(*) FROM users u WHERE u.branch_id = b.id AND u.gym_id = ? AND u.status != 'DELETED') as member_count
+       FROM branches b WHERE b.gym_id = ? ORDER BY b.name`,
+      [gymId, gymId]
     );
     success(res, branches);
   } catch (err) {
@@ -31,6 +36,9 @@ export async function getBranches(req: Request, res: Response) {
 // POST /api/branches
 export async function createBranch(req: Request, res: Response) {
   try {
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const parsed = branchSchema.safeParse(req.body);
     if (!parsed.success) {
       error(res, parsed.error.errors.map((e) => e.message).join(", "), 400, ErrorCode.VALIDATION_ERROR);
@@ -39,8 +47,8 @@ export async function createBranch(req: Request, res: Response) {
 
     const d = parsed.data;
     const result = await query<any>(
-      "INSERT INTO branches (name, address, phone, city, email, is_active) VALUES (?, ?, ?, ?, ?, ?)",
-      [d.name, d.address || null, d.phone || null, d.city || null, d.email || null, d.is_active]
+      "INSERT INTO branches (gym_id, name, address, phone, city, email, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [gymId, d.name, d.address || null, d.phone || null, d.city || null, d.email || null, d.is_active]
     );
 
     await logActivity(req, { action: "CREATE", targetType: "SETTING", targetId: result.insertId, description: `Branche creee : ${d.name}` });
@@ -56,6 +64,9 @@ export async function createBranch(req: Request, res: Response) {
 export async function updateBranch(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
     const parsed = branchSchema.partial().safeParse(req.body);
     if (!parsed.success) {
       error(res, parsed.error.errors.map((e) => e.message).join(", "), 400, ErrorCode.VALIDATION_ERROR);
@@ -79,7 +90,8 @@ export async function updateBranch(req: Request, res: Response) {
     }
 
     values.push(id);
-    await query<any>(`UPDATE branches SET ${fields.join(", ")} WHERE id = ?`, values);
+    values.push(gymId);
+    await query<any>(`UPDATE branches SET ${fields.join(", ")} WHERE id = ? AND gym_id = ?`, values);
 
     success(res, null, 200, "Branche modifiee");
   } catch (err) {
@@ -91,7 +103,10 @@ export async function updateBranch(req: Request, res: Response) {
 // DELETE /api/branches/:id
 export async function deleteBranch(req: Request, res: Response) {
   try {
-    await query<any>("UPDATE branches SET is_active = FALSE WHERE id = ?", [req.params.id]);
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
+    await query<any>("UPDATE branches SET is_active = FALSE WHERE id = ? AND gym_id = ?", [req.params.id, gymId]);
     success(res, null, 200, "Branche desactivee");
   } catch (err) {
     console.error("[BRANCHES] deleteBranch error:", err);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { crmApi } from "../../services/api";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Select } from "../../components/ui";
@@ -7,6 +7,7 @@ import { Select } from "../../components/ui";
 const LEVEL_OPTIONS = [{ value: "", label: "Tous niveaux" }, { value: "HIGH", label: "Risque eleve" }, { value: "MEDIUM", label: "Risque moyen" }, { value: "LOW", label: "Risque faible" }];
 
 export function AdminRiskScores() {
+  const { slug } = useParams();
   const [data, setData] = useState<any>(null);
   const [level, setLevel] = useState("");
   const [loading, setLoading] = useState(true);
@@ -77,7 +78,7 @@ export function AdminRiskScores() {
                   <div className="text-xl font-black">{s.score}<span className="text-xs text-zinc-500">/100</span></div>
                 </div>
                 <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${riskColor(s.risk_level)}`}>{s.risk_level}</span>
-                <Link to={`/admin/membres/${s.user_id}/crm`} className="text-amber-400 text-xs hover:text-amber-300">CRM</Link>
+                <Link to={`/g/${slug}/admin/membres/${s.user_id}/crm`} className="text-amber-400 text-xs hover:text-amber-300">CRM</Link>
               </div>
             </div>
           ))}

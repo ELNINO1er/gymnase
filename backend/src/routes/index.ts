@@ -33,6 +33,24 @@ router.get("/health", (_req, res) => {
   res.json({ success: true, data: { status: "ok", timestamp: new Date().toISOString() } });
 });
 
+// Public gym info (for login/register pages)
+import { query as dbQuery } from "../config/database.js";
+router.get("/gyms/:slug/info", async (req, res) => {
+  try {
+    const gyms = await dbQuery<any[]>(
+      "SELECT id, name, slug, city, country, logo_url FROM gyms WHERE slug = ? AND status = 'ACTIVE'",
+      [req.params.slug]
+    );
+    if (gyms.length === 0) {
+      res.status(404).json({ success: false, message: "Salle introuvable" });
+      return;
+    }
+    res.json({ success: true, data: gyms[0] });
+  } catch {
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
 // API routes
 router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);

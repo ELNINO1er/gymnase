@@ -1,14 +1,23 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Check, UserPlus } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { Check, UserPlus, Building2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
-import { plansApi } from "../../services/api";
+import { plansApi, authApi } from "../../services/api";
 
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n) + " FCFA";
 
+interface GymInfo {
+  id: number;
+  name: string;
+  slug: string;
+  city: string | null;
+}
+
 export function RegisterPage() {
   const { register } = useAuth();
+  const { slug } = useParams<{ slug: string }>();
   const [plans, setPlans] = useState<any[]>([]);
+  const [gymInfo, setGymInfo] = useState<GymInfo | null>(null);
   const [form, setForm] = useState({ full_name: "", email: "", phone: "", password: "", sport_goal: "", plan_id: 0 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,7 +25,12 @@ export function RegisterPage() {
 
   useEffect(() => {
     plansApi.getAll(true).then(({ data }) => setPlans(data.data)).catch(() => {});
-  }, []);
+    if (slug) {
+      authApi.getGymInfo(slug).then(({ data }) => setGymInfo(data.data)).catch(() => setGymInfo(null));
+    }
+  }, [slug]);
+
+  const loginLink = slug ? `/g/${slug}/login` : "/login";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +53,7 @@ export function RegisterPage() {
       password: form.password,
       sport_goal: form.sport_goal || undefined,
       plan_id: form.plan_id || undefined,
+      gym_slug: slug || undefined,
     });
 
     setLoading(false);
@@ -59,7 +74,8 @@ export function RegisterPage() {
           </div>
           <h2 className="text-2xl font-bold mb-2">Inscription enregistree !</h2>
           <p className="text-zinc-400 mb-4">
-            Votre inscription est en attente de validation par l'administration.
+            Votre inscription est en attente de validation par l'administration
+            {gymInfo ? ` de ${gymInfo.name}` : ""}.
           </p>
           {success && (
             <div className="bg-zinc-950 rounded-xl p-4 mb-5">
@@ -68,7 +84,7 @@ export function RegisterPage() {
               <div className="text-xs text-zinc-500 mt-2">Conservez ce code, il vous servira a vous connecter.</div>
             </div>
           )}
-          <Link to="/login" className="inline-flex bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-6 py-3 rounded-lg transition">
+          <Link to={loginLink} className="inline-flex bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold px-6 py-3 rounded-lg transition">
             Se connecter
           </Link>
         </div>
@@ -79,12 +95,20 @@ export function RegisterPage() {
   return (
     <div className="max-w-lg mx-auto">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+        {gymInfo && (
+          <div className="flex items-center justify-center gap-2 mb-4 text-sm text-zinc-400">
+            <Building2 size={16} className="text-amber-400" />
+            <span className="font-bold text-zinc-200">{gymInfo.name}</span>
+          </div>
+        )}
         <div className="text-center mb-6">
           <div className="inline-flex bg-amber-400/10 text-amber-400 p-3 rounded-xl mb-3">
             <UserPlus size={28} />
           </div>
           <h1 className="text-2xl font-bold">Inscription</h1>
-          <p className="text-zinc-400 text-sm mt-1">Rejoignez Elite Gym</p>
+          <p className="text-zinc-400 text-sm mt-1">
+            {gymInfo ? `Rejoignez ${gymInfo.name}` : "Rejoignez Elite Gym"}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -148,7 +172,7 @@ export function RegisterPage() {
 
         <p className="text-center text-sm text-zinc-500 mt-5">
           Deja membre ?{" "}
-          <Link to="/login" className="text-amber-400 hover:text-amber-300 font-medium">Se connecter</Link>
+          <Link to={loginLink} className="text-amber-400 hover:text-amber-300 font-medium">Se connecter</Link>
         </p>
       </div>
     </div>

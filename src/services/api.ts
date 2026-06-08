@@ -36,10 +36,11 @@ export default api;
 // ── Auth API (7 endpoints) ─────────────────────────────────────
 
 export const authApi = {
-  register: (data: { full_name: string; email?: string; phone: string; password: string; sport_goal?: string; plan_id?: number }) =>
+  register: (data: { full_name: string; email?: string; phone: string; password: string; sport_goal?: string; plan_id?: number; gym_slug?: string }) =>
     api.post("/auth/register", data),
-  login: (identifier: string, password: string) =>
-    api.post("/auth/login", { identifier, password }),
+  login: (identifier: string, password: string, gym_slug?: string) =>
+    api.post("/auth/login", { identifier, password, gym_slug }),
+  getGymInfo: (slug: string) => api.get(`/gyms/${slug}/info`),
   me: () => api.get("/auth/me"),
   logout: () => api.post("/auth/logout"),
   changePassword: (current_password: string, new_password: string) =>
@@ -317,14 +318,15 @@ export const platformApi = {
     country?: string;
     status?: "PENDING" | "ACTIVE" | "SUSPENDED";
   }) => api.post("/platform/gyms", data),
-  getGymDetail: (id: number) => api.get(`/platform/gyms/${id}`),
+  getGymDetail: (slugOrId: string | number) => api.get(`/platform/gyms/${slugOrId}`),
   updateGymStatus: (id: number, status: "PENDING" | "ACTIVE" | "SUSPENDED") =>
     api.put(`/platform/gyms/${id}/status`, { status }),
   createGymAdmin: (gymId: number, data: { full_name: string; email: string; phone: string; password: string }) =>
     api.post(`/platform/gyms/${gymId}/admins`, data),
   revenue: () => api.get("/platform/revenue"),
   logs: (params?: { page?: number }) => api.get("/platform/logs", { params }),
-  switchGym: (gym_id: number | null) => api.post("/platform/switch-gym", { gym_id }),
+  switchGym: (gym_slug: string) => api.post("/platform/switch-gym", { gym_slug }),
+  leaveGym: () => api.post("/platform/leave-gym"),
   admins: () => api.get("/platform/admins"),
   createAdmin: (data: {
     full_name: string;

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { dashboardApi, attendanceApi } from "../../services/api";
 import { Users, Calendar, CreditCard, TrendingUp, Bell, Clock, AlertTriangle, UserCheck, DoorOpen } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n) + " FCFA";
 
 export function AdminDashboard() {
+  const { slug } = useParams();
+  const base = `/g/${slug}/admin`;
   const [summary, setSummary] = useState<any>(null);
   const [alerts, setAlerts] = useState<any>(null);
   const [inGym, setInGym] = useState(0);
@@ -36,11 +38,11 @@ export function AdminDashboard() {
         </div>
         <div className="flex items-center gap-3">
           {summary.unread_notifications > 0 && (
-            <Link to="/admin/notifications" className="flex items-center gap-2 bg-amber-400/10 border border-amber-400/40 text-amber-400 px-3 py-2 rounded-lg text-sm font-medium">
+            <Link to={`${base}/notifications`} className="flex items-center gap-2 bg-amber-400/10 border border-amber-400/40 text-amber-400 px-3 py-2 rounded-lg text-sm font-medium">
               <Bell size={16} /> {summary.unread_notifications}
             </Link>
           )}
-          <Link to="/admin/presences" className="flex items-center gap-2 bg-green-500/10 border border-green-500/40 text-green-400 px-3 py-2 rounded-lg text-sm font-medium">
+          <Link to={`${base}/presences`} className="flex items-center gap-2 bg-green-500/10 border border-green-500/40 text-green-400 px-3 py-2 rounded-lg text-sm font-medium">
             <DoorOpen size={16} /> {inGym} en salle
           </Link>
         </div>
@@ -83,14 +85,14 @@ export function AdminDashboard() {
       {/* Liens rapides */}
       <h2 className="font-bold text-lg mb-3">Acces rapides</h2>
       <div className="grid sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        <QuickLink to="/admin/membres" label="Gerer les membres" color="bg-amber-400/10 border-amber-400/30 text-amber-400" />
-        <QuickLink to="/admin/paiements" label="Gerer les paiements" color="bg-green-500/10 border-green-500/30 text-green-400" />
-        <QuickLink to="/admin/presences" label="Presences en salle" color="bg-blue-500/10 border-blue-500/30 text-blue-400" />
-        <QuickLink to="/admin/analytics" label="Statistiques" color="bg-purple-500/10 border-purple-500/30 text-purple-400" />
-        <QuickLink to="/admin/boutique" label="Boutique" color="bg-pink-500/10 border-pink-500/30 text-pink-400" />
-        <QuickLink to="/admin/promos" label="Codes promo" color="bg-cyan-500/10 border-cyan-500/30 text-cyan-400" />
-        <QuickLink to="/admin/exports" label="Exporter les donnees" color="bg-orange-500/10 border-orange-500/30 text-orange-400" />
-        <QuickLink to="/admin/settings" label="Configuration" color="bg-zinc-800 border-zinc-700 text-zinc-300" />
+        <QuickLink to={`${base}/membres`} label="Gerer les membres" color="bg-amber-400/10 border-amber-400/30 text-amber-400" />
+        <QuickLink to={`${base}/paiements`} label="Gerer les paiements" color="bg-green-500/10 border-green-500/30 text-green-400" />
+        <QuickLink to={`${base}/presences`} label="Presences en salle" color="bg-blue-500/10 border-blue-500/30 text-blue-400" />
+        <QuickLink to={`${base}/analytics`} label="Statistiques" color="bg-purple-500/10 border-purple-500/30 text-purple-400" />
+        <QuickLink to={`${base}/boutique`} label="Boutique" color="bg-pink-500/10 border-pink-500/30 text-pink-400" />
+        <QuickLink to={`${base}/promos`} label="Codes promo" color="bg-cyan-500/10 border-cyan-500/30 text-cyan-400" />
+        <QuickLink to={`${base}/exports`} label="Exporter les donnees" color="bg-orange-500/10 border-orange-500/30 text-orange-400" />
+        <QuickLink to={`${base}/settings`} label="Configuration" color="bg-zinc-800 border-zinc-700 text-zinc-300" />
       </div>
     </div>
   );

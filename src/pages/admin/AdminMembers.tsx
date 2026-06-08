@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { usersApi } from "../../services/api";
 import { Search, Trash2, UserCheck, UserX, RefreshCw, FileUser } from "lucide-react";
 import { useConfirm, Select } from "../../components/ui";
@@ -21,6 +21,7 @@ const STATUS_OPTIONS = [
 ];
 
 export function AdminMembers() {
+  const { slug } = useParams();
   const [users, setUsers] = useState<any[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
   const [filters, setFilters] = useState({ keyword: "", role: "", status: "" });
@@ -165,7 +166,7 @@ export function AdminMembers() {
                 <div className="text-xs text-zinc-500 truncate">{u.email || u.phone}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Link to={`/admin/membres/${u.id}/crm`} title="Fiche CRM"
+                <Link to={`/g/${slug}/admin/membres/${u.id}/crm`} title="Fiche CRM"
                   className="p-1.5 rounded-lg bg-zinc-800 hover:bg-amber-400/20 text-zinc-400 hover:text-amber-400"><FileUser size={16} /></Link>
                 <StatusBadge status={u.status} />
                 {u.status === "PENDING" && (

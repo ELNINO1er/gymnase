@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { query } from "../config/database.js";
 import { success, error, paginated } from "../utils/response.js";
+import { requireGymContext } from "../utils/access.js";
 
 // ── GET /api/logs — Liste paginee des logs d'activite ──────────
 
@@ -14,9 +15,11 @@ export async function getLogs(req: Request, res: Response) {
     const adminId = req.query.admin_id as string || "";
     const dateFrom = req.query.date_from as string || "";
     const dateTo = req.query.date_to as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "WHERE 1=1";
-    const params: any[] = [];
+    let where = "WHERE gym_id = ?";
+    const params: any[] = [gymId];
 
     if (action) { where += " AND action = ?"; params.push(action); }
     if (targetType) { where += " AND target_type = ?"; params.push(targetType); }

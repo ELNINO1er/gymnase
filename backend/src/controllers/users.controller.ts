@@ -302,12 +302,12 @@ export async function deleteUser(req: Request, res: Response) {
 
     // Annuler abonnements et reservations actifs
     await query<any>(
-      "UPDATE subscriptions SET status = 'CANCELLED' WHERE user_id = ? AND status IN ('PENDING', 'ACTIVE')",
-      [id]
+      "UPDATE subscriptions SET status = 'CANCELLED' WHERE user_id = ? AND gym_id = ? AND status IN ('PENDING', 'ACTIVE')",
+      [id, gymId]
     );
     await query<any>(
-      "UPDATE reservations SET status = 'CANCELLED' WHERE user_id = ? AND status IN ('PENDING', 'CONFIRMED')",
-      [id]
+      "UPDATE reservations SET status = 'CANCELLED' WHERE user_id = ? AND gym_id = ? AND status IN ('PENDING', 'CONFIRMED')",
+      [id, gymId]
     );
 
     await logActivity(req, { action: "DELETE", targetType: "USER", targetId: Number(id), description: `Membre supprime : #${id}` });
@@ -346,21 +346,21 @@ export async function validateUser(req: Request, res: Response) {
 
     // Passer en ACTIVE + role MEMBER
     await query<any>(
-      "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ?",
-      [id]
+      "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND gym_id = ?",
+      [id, gymId]
     );
 
     // Activer souscription PENDING si elle existe
     await query<any>(
-      "UPDATE subscriptions SET status = 'ACTIVE' WHERE user_id = ? AND status = 'PENDING'",
-      [id]
+      "UPDATE subscriptions SET status = 'ACTIVE' WHERE user_id = ? AND gym_id = ? AND status = 'PENDING'",
+      [id, gymId]
     );
 
     // Notification au membre
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Inscription validee', 'Votre inscription a ete validee. Bienvenue chez Elite Gym !', 'SUBSCRIPTION')`,
-      [id]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Inscription validee', 'Votre inscription a ete validee. Bienvenue chez Elite Gym !', 'SUBSCRIPTION')`,
+      [gymId, id]
     );
 
     await logActivity(req, { action: "VALIDATE", targetType: "USER", targetId: Number(id), description: `Inscription validee : ${user.full_name}` });
@@ -395,9 +395,9 @@ export async function suspendUser(req: Request, res: Response) {
 
     // Notification
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Compte suspendu', 'Votre compte a ete suspendu. Contactez l administration pour plus d informations.', 'SYSTEM')`,
-      [id]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Compte suspendu', 'Votre compte a ete suspendu. Contactez l administration pour plus d informations.', 'SYSTEM')`,
+      [gymId, id]
     );
 
     await logActivity(req, { action: "SUSPEND", targetType: "USER", targetId: Number(id), description: `Membre suspendu : ${users[0].full_name}` });
@@ -431,9 +431,9 @@ export async function reactivateUser(req: Request, res: Response) {
     await query<any>("UPDATE users SET status = 'ACTIVE' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Compte reactive', 'Votre compte a ete reactive. Bon entrainement !', 'SYSTEM')`,
-      [id]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Compte reactive', 'Votre compte a ete reactive. Bon entrainement !', 'SYSTEM')`,
+      [gymId, id]
     );
 
     await logActivity(req, { action: "REACTIVATE", targetType: "USER", targetId: Number(id), description: `Membre reactive : ${users[0].full_name}` });

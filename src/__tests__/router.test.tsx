@@ -13,8 +13,18 @@ describe("Router configuration", () => {
     expect(paths).toContain("/register");
   });
 
+  it("has gym-scoped public routes", () => {
+    const gymPublicRoutes = router.routes[1];
+    expect(gymPublicRoutes.children).toBeDefined();
+
+    const paths = gymPublicRoutes.children!.map((r) => r.path);
+    expect(paths).toContain("/g/:slug/login");
+    expect(paths).toContain("/g/:slug/register");
+    expect(paths).toContain("/g/:slug/admin/login");
+  });
+
   it("has member routes with invoices", () => {
-    const memberRoutes = router.routes[1];
+    const memberRoutes = router.routes[2];
     expect(memberRoutes.children).toBeDefined();
 
     const paths = memberRoutes.children!.map((r) => r.path);
@@ -33,7 +43,7 @@ describe("Router configuration", () => {
   });
 
   it("has coach routes", () => {
-    const coachRoutes = router.routes[2];
+    const coachRoutes = router.routes[3];
     expect(coachRoutes.children).toBeDefined();
 
     const paths = coachRoutes.children!.map((r) => r.path);
@@ -43,33 +53,33 @@ describe("Router configuration", () => {
     expect(paths).toContain("/coach/programmes");
   });
 
-  it("has admin routes", () => {
-    const adminRoutes = router.routes[3];
+  it("has admin routes with slug", () => {
+    const adminRoutes = router.routes[4];
     expect(adminRoutes.children).toBeDefined();
 
     const paths = adminRoutes.children!.map((r) => r.path);
-    expect(paths).toContain("/admin");
-    expect(paths).toContain("/admin/membres");
-    expect(paths).toContain("/admin/reservations");
-    expect(paths).toContain("/admin/paiements");
-    expect(paths).toContain("/admin/plans");
-    expect(paths).toContain("/admin/presences");
-    expect(paths).toContain("/admin/analytics");
-    expect(paths).toContain("/admin/settings");
-    expect(paths).toContain("/admin/factures");
-    expect(paths).toContain("/admin/abonnements");
-    expect(paths).toContain("/admin/boutique");
-    expect(paths).toContain("/admin/risques");
+    expect(paths).toContain("/g/:slug/admin");
+    expect(paths).toContain("/g/:slug/admin/membres");
+    expect(paths).toContain("/g/:slug/admin/reservations");
+    expect(paths).toContain("/g/:slug/admin/paiements");
+    expect(paths).toContain("/g/:slug/admin/plans");
+    expect(paths).toContain("/g/:slug/admin/presences");
+    expect(paths).toContain("/g/:slug/admin/analytics");
+    expect(paths).toContain("/g/:slug/admin/settings");
+    expect(paths).toContain("/g/:slug/admin/factures");
+    expect(paths).toContain("/g/:slug/admin/abonnements");
+    expect(paths).toContain("/g/:slug/admin/boutique");
+    expect(paths).toContain("/g/:slug/admin/risques");
   });
 
   it("has platform routes", () => {
-    const platformRoutes = router.routes[4];
+    const platformRoutes = router.routes[5];
     expect(platformRoutes.children).toBeDefined();
 
     const paths = platformRoutes.children!.map((r) => r.path);
     expect(paths).toContain("/plateforme");
     expect(paths).toContain("/plateforme/salles");
-    expect(paths).toContain("/plateforme/salles/:id");
+    expect(paths).toContain("/plateforme/salles/:slugOrId");
     expect(paths).toContain("/plateforme/admins");
     expect(paths).toContain("/plateforme/logs");
   });

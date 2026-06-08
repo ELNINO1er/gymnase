@@ -8,7 +8,7 @@ const cronTimers: NodeJS.Timeout[] = [];
 export async function expireSubscriptions() {
   try {
     const expired = await query<any[]>(
-      `SELECT s.id, s.user_id, u.full_name, mp.name as plan_name
+      `SELECT s.id, s.gym_id, s.user_id, u.full_name, mp.name as plan_name
        FROM subscriptions s
        JOIN users u ON u.id = s.user_id
        JOIN membership_plans mp ON mp.id = s.plan_id
@@ -20,25 +20,34 @@ export async function expireSubscriptions() {
     await query<any>("UPDATE subscriptions SET status = 'EXPIRED' WHERE status = 'ACTIVE' AND end_date < CURDATE()");
 
     await query<any>(
-      `UPDATE users SET status = 'EXPIRED'
-       WHERE role = 'MEMBER' AND status = 'ACTIVE'
-         AND id NOT IN (SELECT user_id FROM subscriptions WHERE status = 'ACTIVE' AND end_date >= CURDATE())
-         AND id IN (SELECT user_id FROM subscriptions WHERE status = 'EXPIRED')`
+      `UPDATE users u SET status = 'EXPIRED'
+       WHERE u.role = 'MEMBER' AND u.status = 'ACTIVE'
+         AND u.id NOT IN (SELECT user_id FROM subscriptions WHERE gym_id = u.gym_id AND status = 'ACTIVE' AND end_date >= CURDATE())
+         AND u.id IN (SELECT user_id FROM subscriptions WHERE gym_id = u.gym_id AND status = 'EXPIRED')`
     );
 
     for (const sub of expired) {
       await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Abonnement expire', ?, 'SUBSCRIPTION')`,
-        [sub.user_id, `Votre abonnement "${sub.plan_name}" a expire. Renouvelez-le pour continuer.`]
+        `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Abonnement expire', ?, 'SUBSCRIPTION')`,
+        [sub.gym_id, sub.user_id, `Votre abonnement "${sub.plan_name}" a expire. Renouvelez-le pour continuer.`]
       );
     }
 
-    const admins = await query<any[]>("SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'");
-    for (const admin of admins) {
-      await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Abonnements expires', ?, 'SYSTEM')`,
-        [admin.id, `${expired.length} abonnement(s) expire(s) : ${expired.map((e) => e.full_name).join(", ")}`]
-      );
+    const expiredByGym = new Map<number, any[]>();
+    for (const sub of expired) {
+      const gymSubs = expiredByGym.get(sub.gym_id) || [];
+      gymSubs.push(sub);
+      expiredByGym.set(sub.gym_id, gymSubs);
+    }
+
+    for (const [gymId, gymSubs] of expiredByGym) {
+      const admins = await query<any[]>("SELECT id FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'", [gymId]);
+      for (const admin of admins) {
+        await query<any>(
+          `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Abonnements expires', ?, 'SYSTEM')`,
+          [gymId, admin.id, `${gymSubs.length} abonnement(s) expire(s) : ${gymSubs.map((e) => e.full_name).join(", ")}`]
+        );
+      }
     }
 
     console.log(`[CRON] ${expired.length} abonnement(s) expire(s)`);
@@ -63,7 +72,7 @@ async function runDailyTasks() {
 async function remindExpiringSubscriptions() {
   try {
     const expiringSoon = await query<any[]>(
-      `SELECT s.id, s.user_id, s.end_date, u.full_name, mp.name as plan_name
+      `SELECT s.id, s.gym_id, s.user_id, s.end_date, u.full_name, mp.name as plan_name
        FROM subscriptions s
        JOIN users u ON u.id = s.user_id
        JOIN membership_plans mp ON mp.id = s.plan_id
@@ -73,14 +82,14 @@ async function remindExpiringSubscriptions() {
     for (const sub of expiringSoon) {
       // Eviter les doublons de notification
       const [existing] = await query<any[]>(
-        `SELECT id FROM notifications WHERE user_id = ? AND title = 'Abonnement bientot expire' AND DATE(created_at) = CURDATE()`,
-        [sub.user_id]
+        `SELECT id FROM notifications WHERE gym_id = ? AND user_id = ? AND title = 'Abonnement bientot expire' AND DATE(created_at) = CURDATE()`,
+        [sub.gym_id, sub.user_id]
       );
       if (existing) continue;
 
       await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Abonnement bientot expire', ?, 'SUBSCRIPTION')`,
-        [sub.user_id, `Votre abonnement "${sub.plan_name}" expire dans 3 jours (${new Date(sub.end_date).toLocaleDateString("fr-FR")}). Pensez a le renouveler.`]
+        `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Abonnement bientot expire', ?, 'SUBSCRIPTION')`,
+        [sub.gym_id, sub.user_id, `Votre abonnement "${sub.plan_name}" expire dans 3 jours (${new Date(sub.end_date).toLocaleDateString("fr-FR")}). Pensez a le renouveler.`]
       );
     }
 
@@ -95,7 +104,7 @@ async function remindExpiringSubscriptions() {
 async function remindPendingPayments() {
   try {
     const pending = await query<any[]>(
-      `SELECT p.id, p.user_id, p.amount, u.full_name
+      `SELECT p.id, p.gym_id, p.user_id, p.amount, u.full_name
        FROM payments p
        JOIN users u ON u.id = p.user_id
        WHERE p.status = 'PENDING' AND p.created_at < DATE_SUB(NOW(), INTERVAL 48 HOUR)`
@@ -104,20 +113,29 @@ async function remindPendingPayments() {
     // Notifier l'admin une fois par jour
     if (pending.length === 0) return;
 
-    const admins = await query<any[]>("SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'");
+    const pendingByGym = new Map<number, any[]>();
+    for (const payment of pending) {
+      const gymPayments = pendingByGym.get(payment.gym_id) || [];
+      gymPayments.push(payment);
+      pendingByGym.set(payment.gym_id, gymPayments);
+    }
 
-    for (const admin of admins) {
-      const [existing] = await query<any[]>(
-        `SELECT id FROM notifications WHERE user_id = ? AND title = 'Paiements en retard' AND DATE(created_at) = CURDATE()`,
-        [admin.id]
-      );
-      if (existing) continue;
+    for (const [gymId, gymPayments] of pendingByGym) {
+      const admins = await query<any[]>("SELECT id FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'", [gymId]);
 
-      const totalAmount = pending.reduce((s, p) => s + Number(p.amount), 0);
-      await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Paiements en retard', ?, 'PAYMENT')`,
-        [admin.id, `${pending.length} paiement(s) en attente depuis plus de 48h (total: ${totalAmount.toLocaleString()} FCFA). Membres: ${pending.map((p) => p.full_name).join(", ")}`]
-      );
+      for (const admin of admins) {
+        const [existing] = await query<any[]>(
+          `SELECT id FROM notifications WHERE gym_id = ? AND user_id = ? AND title = 'Paiements en retard' AND DATE(created_at) = CURDATE()`,
+          [gymId, admin.id]
+        );
+        if (existing) continue;
+
+        const totalAmount = gymPayments.reduce((s, p) => s + Number(p.amount), 0);
+        await query<any>(
+          `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Paiements en retard', ?, 'PAYMENT')`,
+          [gymId, admin.id, `${gymPayments.length} paiement(s) en attente depuis plus de 48h (total: ${totalAmount.toLocaleString()} FCFA). Membres: ${gymPayments.map((p) => p.full_name).join(", ")}`]
+        );
+      }
     }
 
     console.log(`[CRON] ${pending.length} paiement(s) en retard signale(s)`);
@@ -131,12 +149,12 @@ async function remindPendingPayments() {
 async function alertInactiveMembers() {
   try {
     const inactive = await query<any[]>(
-      `SELECT u.id, u.full_name, u.member_code,
+      `SELECT u.id, u.gym_id, u.full_name, u.member_code,
               MAX(a.check_in_time) as last_visit
        FROM users u
-       LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.status = 'VALID'
+       LEFT JOIN attendance_logs a ON a.user_id = u.id AND a.gym_id = u.gym_id AND a.status = 'VALID'
        WHERE u.role = 'MEMBER' AND u.status = 'ACTIVE'
-       GROUP BY u.id, u.full_name, u.member_code
+       GROUP BY u.id, u.gym_id, u.full_name, u.member_code
        HAVING last_visit IS NULL OR last_visit < DATE_SUB(NOW(), INTERVAL 30 DAY)`
     );
 
@@ -146,12 +164,21 @@ async function alertInactiveMembers() {
     const today = new Date();
     if (today.getDay() !== 1) return; // Seulement le lundi
 
-    const admins = await query<any[]>("SELECT id FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'");
-    for (const admin of admins) {
-      await query<any>(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, 'Membres inactifs', ?, 'SYSTEM')`,
-        [admin.id, `${inactive.length} membre(s) ne sont pas venus depuis plus de 30 jours : ${inactive.slice(0, 5).map((m) => m.full_name).join(", ")}${inactive.length > 5 ? "..." : ""}`]
-      );
+    const inactiveByGym = new Map<number, any[]>();
+    for (const member of inactive) {
+      const gymMembers = inactiveByGym.get(member.gym_id) || [];
+      gymMembers.push(member);
+      inactiveByGym.set(member.gym_id, gymMembers);
+    }
+
+    for (const [gymId, gymMembers] of inactiveByGym) {
+      const admins = await query<any[]>("SELECT id FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status = 'ACTIVE'", [gymId]);
+      for (const admin of admins) {
+        await query<any>(
+          `INSERT INTO notifications (gym_id, user_id, title, message, type) VALUES (?, ?, 'Membres inactifs', ?, 'SYSTEM')`,
+          [gymId, admin.id, `${gymMembers.length} membre(s) ne sont pas venus depuis plus de 30 jours : ${gymMembers.slice(0, 5).map((m) => m.full_name).join(", ")}${gymMembers.length > 5 ? "..." : ""}`]
+        );
+      }
     }
 
     console.log(`[CRON] ${inactive.length} membre(s) inactif(s) detecte(s)`);
@@ -166,7 +193,7 @@ async function autoGenerateInvoices() {
   try {
     // Trouver les paiements PAID sans facture
     const payments = await query<any[]>(
-      `SELECT p.id, p.user_id, p.amount, u.full_name, mp.name as plan_name
+      `SELECT p.id, p.gym_id, p.user_id, p.amount, u.full_name, mp.name as plan_name
        FROM payments p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN subscriptions s ON s.id = p.subscription_id
@@ -183,9 +210,9 @@ async function autoGenerateInvoices() {
       const label = p.plan_name ? `Abonnement ${p.plan_name}` : "Paiement";
 
       await query<any>(
-        `INSERT INTO invoices (user_id, payment_id, invoice_number, label, amount, status, paid_at)
-         VALUES (?, ?, ?, ?, ?, 'PAID', NOW())`,
-        [p.user_id, p.id, invoiceNumber, label, p.amount]
+        `INSERT INTO invoices (gym_id, user_id, payment_id, invoice_number, label, amount, status, paid_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'PAID', NOW())`,
+        [p.gym_id, p.user_id, p.id, invoiceNumber, label, p.amount]
       );
     }
 

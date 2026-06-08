@@ -2,17 +2,20 @@ import { Request, Response } from "express";
 import { query } from "../config/database.js";
 import { success, error, ErrorCode } from "../utils/response.js";
 import { calculateRiskScore, recalculateAllRiskScores } from "../services/riskScore.js";
+import { requireGymContext } from "../utils/access.js";
 
 // ── GET /api/crm/member/:id — Fiche CRM complete ──────────────
 
 export async function getMemberCRM(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     // Profil
     const [user] = await query<any[]>(
-      "SELECT id, full_name, email, phone, role, status, member_code, sport_goal, created_at FROM users WHERE id = ?",
-      [id]
+      "SELECT id, full_name, email, phone, role, status, member_code, sport_goal, created_at FROM users WHERE id = ? AND gym_id = ?",
+      [id, gymId]
     );
     if (!user) {
       error(res, "Membre introuvable", 404, ErrorCode.NOT_FOUND);
@@ -23,15 +26,15 @@ export async function getMemberCRM(req: Request, res: Response) {
     const [sub] = await query<any[]>(
       `SELECT s.*, mp.name as plan_name FROM subscriptions s
        JOIN membership_plans mp ON mp.id = s.plan_id
-       WHERE s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
+       WHERE s.user_id = ? AND s.gym_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
        ORDER BY s.end_date DESC LIMIT 1`,
-      [id]
+      [id, gymId]
     );
 
     // Stats paiements
     const [payStats] = await query<any[]>(
-      "SELECT COALESCE(SUM(CASE WHEN status='PAID' THEN amount ELSE 0 END),0) as total_paid, COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending FROM payments WHERE user_id = ?",
-      [id]
+      "SELECT COALESCE(SUM(CASE WHEN status='PAID' THEN amount ELSE 0 END),0) as total_paid, COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending FROM payments WHERE user_id = ? AND gym_id = ?",
+      [id, gymId]
     );
 
     // Stats reservations
@@ -39,14 +42,14 @@ export async function getMemberCRM(req: Request, res: Response) {
       `SELECT COUNT(*) as total, SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) as completed,
               SUM(CASE WHEN status='CANCELLED' THEN 1 ELSE 0 END) as cancelled,
               SUM(CASE WHEN status='NO_SHOW' THEN 1 ELSE 0 END) as no_show
-       FROM reservations WHERE user_id = ?`,
-      [id]
+       FROM reservations WHERE user_id = ? AND gym_id = ?`,
+      [id, gymId]
     );
 
     // Presences
     const [attStats] = await query<any[]>(
-      "SELECT COUNT(*) as total_visits, MAX(check_in_time) as last_visit FROM attendance_logs WHERE user_id = ? AND status = 'VALID'",
-      [id]
+      "SELECT COUNT(*) as total_visits, MAX(check_in_time) as last_visit FROM attendance_logs WHERE user_id = ? AND gym_id = ? AND status = 'VALID'",
+      [id, gymId]
     );
 
     // Progression recente
@@ -64,14 +67,15 @@ export async function getMemberCRM(req: Request, res: Response) {
     );
 
     // Score de risque
-    const risk = await calculateRiskScore(Number(id));
+    const risk = await calculateRiskScore(Number(id), gymId);
 
     // Historique des actions (logs)
     const activityLogs = await query<any[]>(
       `SELECT action, description, created_at FROM activity_logs
        WHERE target_type = 'USER' AND target_id = ?
+         AND gym_id = ?
        ORDER BY created_at DESC LIMIT 10`,
-      [id]
+      [id, gymId]
     );
 
     success(res, {
@@ -97,9 +101,17 @@ export async function addMemberNote(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const { note } = req.body;
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
     if (!note || typeof note !== "string" || note.trim().length === 0) {
       error(res, "Note requise", 400, ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+
+    const [user] = await query<any[]>("SELECT id FROM users WHERE id = ? AND gym_id = ? AND status != 'DELETED'", [id, gymId]);
+    if (!user) {
+      error(res, "Membre introuvable", 404, ErrorCode.NOT_FOUND);
       return;
     }
 
@@ -119,7 +131,15 @@ export async function addMemberNote(req: Request, res: Response) {
 
 export async function deleteMemberNote(req: Request, res: Response) {
   try {
-    await query<any>("DELETE FROM member_notes WHERE id = ?", [req.params.id]);
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
+    await query<any>(
+      `DELETE mn FROM member_notes mn
+       JOIN users u ON u.id = mn.user_id
+       WHERE mn.id = ? AND u.gym_id = ?`,
+      [req.params.id, gymId]
+    );
     success(res, null, 200, "Note supprimee");
   } catch (err) {
     console.error("[CRM] deleteMemberNote error:", err);
@@ -132,10 +152,12 @@ export async function deleteMemberNote(req: Request, res: Response) {
 export async function getAllRiskScores(req: Request, res: Response) {
   try {
     const level = req.query.level as string || "";
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
 
-    let where = "";
-    const params: any[] = [];
-    if (level) { where = "WHERE r.risk_level = ?"; params.push(level); }
+    let where = "WHERE u.gym_id = ?";
+    const params: any[] = [gymId];
+    if (level) { where += " AND r.risk_level = ?"; params.push(level); }
 
     const scores = await query<any[]>(
       `SELECT r.*, u.full_name, u.member_code, u.email, u.phone, u.status
@@ -163,7 +185,10 @@ export async function getAllRiskScores(req: Request, res: Response) {
 
 export async function recalculateRiskScores(req: Request, res: Response) {
   try {
-    const count = await recalculateAllRiskScores();
+    const gymId = requireGymContext(req, res);
+    if (!gymId) return;
+
+    const count = await recalculateAllRiskScores(gymId);
     success(res, { recalculated: count }, 200, `${count} score(s) recalcule(s)`);
   } catch (err) {
     console.error("[CRM] recalculateRiskScores error:", err);

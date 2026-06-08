@@ -1,15 +1,32 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { LogIn, ShieldCheck, Building2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import { authApi } from "../../services/api";
+
+interface GymInfo {
+  id: number;
+  name: string;
+  slug: string;
+  city: string | null;
+  country: string | null;
+}
 
 export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
   const { login, logout } = useAuth();
   const navigate = useNavigate();
+  const { slug } = useParams<{ slug: string }>();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [gymInfo, setGymInfo] = useState<GymInfo | null>(null);
+
+  useEffect(() => {
+    if (slug) {
+      authApi.getGymInfo(slug).then(({ data }) => setGymInfo(data.data)).catch(() => setGymInfo(null));
+    }
+  }, [slug]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,15 +38,13 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
     setLoading(true);
     setError("");
 
-    const result = await login(identifier.trim(), password);
+    const result = await login(identifier.trim(), password, slug || undefined);
     setLoading(false);
 
     if (result.success) {
-      // Redirect based on role — need to re-read from localStorage since state updates async
       const user = JSON.parse(localStorage.getItem("user") || "{}");
       const isAdminUser = ["ADMIN", "SUPER_ADMIN"].includes(user.role);
       const isPlatformAdmin = Boolean(user.is_platform_admin);
-
       const isCoachUser = user.role === "COACH";
 
       if (adminOnly && !isAdminUser && !isCoachUser) {
@@ -38,9 +53,11 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
         return;
       }
 
+      const gymSlug = user.active_gym_slug || user.gym_slug || slug;
       navigate(
-        isPlatformAdmin && !user.gym_id ? "/plateforme" :
-        isAdminUser ? "/admin" :
+        isPlatformAdmin && !gymSlug ? "/plateforme" :
+        isAdminUser && gymSlug ? `/g/${gymSlug}/admin` :
+        isAdminUser ? "/plateforme" :
         isCoachUser ? "/coach" :
         "/membre"
       );
@@ -49,9 +66,20 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
     }
   };
 
+  const gymName = gymInfo?.name || null;
+  const registerLink = slug ? `/g/${slug}/register` : "/register";
+  const loginLink = slug ? `/g/${slug}/login` : "/login";
+  const adminLoginLink = slug ? `/g/${slug}/admin/login` : "/admin/login";
+
   return (
     <div className="max-w-md mx-auto">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+        {gymName && (
+          <div className="flex items-center justify-center gap-2 mb-4 text-sm text-zinc-400">
+            <Building2 size={16} className="text-amber-400" />
+            <span className="font-bold text-zinc-200">{gymName}</span>
+          </div>
+        )}
         <div className="text-center mb-6">
           <div className="inline-flex bg-amber-400/10 text-amber-400 p-3 rounded-xl mb-3">
             {adminOnly ? <ShieldCheck size={28} /> : <LogIn size={28} />}
@@ -96,14 +124,14 @@ export function LoginPage({ adminOnly = false }: { adminOnly?: boolean }) {
         {adminOnly ? (
           <p className="text-center text-sm text-zinc-500 mt-5">
             Espace membre ?{" "}
-            <Link to="/login" className="text-amber-400 hover:text-amber-300 font-medium">
+            <Link to={loginLink} className="text-amber-400 hover:text-amber-300 font-medium">
               Connexion client
             </Link>
           </p>
         ) : (
           <p className="text-center text-sm text-zinc-500 mt-5">
             Pas encore membre ?{" "}
-            <Link to="/register" className="text-amber-400 hover:text-amber-300 font-medium">
+            <Link to={registerLink} className="text-amber-400 hover:text-amber-300 font-medium">
               S'inscrire
             </Link>
           </p>

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { query } from "../config/database.js";
 import { success, error, paginated } from "../utils/response.js";
 import { generateMemberCode, generateToken } from "../utils/token.js";
+import { logPlatformAction } from "../utils/platformLog.js";
 
 const gymSchema = z.object({
   name: z.string().min(2).max(150),
@@ -74,7 +75,7 @@ export async function createGym(req: Request, res: Response) {
 
     const data = parsed.data;
     const slug = data.slug || toSlug(data.name);
-    const status = data.status || "PENDING";
+    const status = data.status || "ACTIVE";
 
     const result = await query<any>(
       `INSERT INTO gyms (name, slug, owner_name, owner_email, owner_phone, city, country, status, verified_by)
@@ -92,13 +93,17 @@ export async function createGym(req: Request, res: Response) {
       ]
     );
 
+    const gymId = result.insertId;
+    let ownerAdmin: any = null;
+
     if (data.owner_email && data.owner_password) {
       const passwordHash = await bcrypt.hash(data.owner_password, 12);
-      await query<any>(
-        `INSERT INTO users (gym_id, full_name, email, phone, password_hash, role, status, member_code)
-         VALUES (?, ?, ?, ?, ?, 'ADMIN', 'ACTIVE', ?)`,
+      const adminResult = await query<any>(
+        `INSERT INTO users (gym_id, gym_slug, full_name, email, phone, password_hash, role, status, member_code)
+         VALUES (?, ?, ?, ?, ?, ?, 'ADMIN', 'ACTIVE', ?)`,
         [
-          result.insertId,
+          gymId,
+          slug,
           data.owner_name || `Admin ${data.name}`,
           data.owner_email,
           data.owner_phone || null,
@@ -106,14 +111,47 @@ export async function createGym(req: Request, res: Response) {
           generateMemberCode(),
         ]
       );
+
+      // Set owner_id on gym
+      await query("UPDATE gyms SET owner_id = ? WHERE id = ?", [adminResult.insertId, gymId]);
+
+      ownerAdmin = {
+        id: adminResult.insertId,
+        full_name: data.owner_name || `Admin ${data.name}`,
+        email: data.owner_email,
+      };
     }
 
-    const gyms = await query<any[]>("SELECT * FROM gyms WHERE id = ?", [result.insertId]);
-    success(res, gyms[0], 201);
+    // Create default settings for this gym
+    const defaultSettings = [
+      ["gym_name", data.name],
+      ["currency", "XOF"],
+      ["cancellation_hours", "2"],
+      ["allow_trial_session", "false"],
+    ];
+    for (const [key, value] of defaultSettings) {
+      await query(
+        `INSERT IGNORE INTO settings (setting_key, gym_id, setting_value) VALUES (?, ?, ?)`,
+        [key, gymId, value]
+      );
+    }
+
+    const gyms = await query<any[]>("SELECT * FROM gyms WHERE id = ?", [gymId]);
+
+    await logPlatformAction(req, "CREATE_GYM", "GYM", gymId, { name: data.name, slug });
+
+    success(res, {
+      gym: gyms[0],
+      owner_admin: ownerAdmin,
+      next_actions: {
+        detail_url: `/plateforme/salles/${slug}`,
+        enter_url: `/g/${slug}/admin`,
+      },
+    }, 201);
   } catch (err: any) {
     console.error("[PLATFORM] createGym error:", err);
     if (err?.code === "ER_DUP_ENTRY") {
-      error(res, "Une salle existe deja avec ce slug", 409);
+      error(res, "Une salle existe deja avec ce slug ou cet email", 409);
       return;
     }
     error(res, "Erreur lors de la creation de la salle", 500);
@@ -196,8 +234,13 @@ export async function listPlatformAdmins(_req: Request, res: Response) {
 
 export async function getGymDetail(req: Request, res: Response) {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
+    // Support lookup by slug or id
+    const param = req.params.slugOrId || req.params.id;
+    const isNumeric = /^\d+$/.test(param);
+    const whereClause = isNumeric ? "WHERE g.id = ?" : "WHERE g.slug = ?";
+    const paramValue = isNumeric ? Number(param) : param;
+
+    if (!param) {
       error(res, "Salle invalide");
       return;
     }
@@ -210,15 +253,17 @@ export async function getGymDetail(req: Request, res: Response) {
         COUNT(DISTINCT CASE WHEN u.role = 'COACH' THEN u.id END) AS coaches_count
        FROM gyms g
        LEFT JOIN users u ON u.gym_id = g.id AND u.status != 'DELETED'
-       WHERE g.id = ?
+       ${whereClause}
        GROUP BY g.id`,
-      [id]
+      [paramValue]
     );
 
     if (gyms.length === 0) {
       error(res, "Salle introuvable", 404);
       return;
     }
+
+    const gymId = gyms[0].id;
 
     // Revenue stats
     const [revenue] = await query<any[]>(
@@ -229,13 +274,13 @@ export async function getGymDetail(req: Request, res: Response) {
         COUNT(CASE WHEN status = 'PAID' THEN 1 END) AS paid_count,
         COUNT(CASE WHEN status = 'PENDING' THEN 1 END) AS pending_count
        FROM payments WHERE gym_id = ?`,
-      [id]
+      [gymId]
     );
 
     // Active subscriptions
     const [subs] = await query<any[]>(
       `SELECT COUNT(*) AS active_subs FROM subscriptions WHERE gym_id = ? AND status = 'ACTIVE' AND end_date >= CURDATE()`,
-      [id]
+      [gymId]
     );
 
     // Admins list
@@ -243,7 +288,7 @@ export async function getGymDetail(req: Request, res: Response) {
       `SELECT id, full_name, email, phone, role, status, created_at
        FROM users WHERE gym_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN') AND status != 'DELETED'
        ORDER BY created_at DESC`,
-      [id]
+      [gymId]
     );
 
     success(res, {
@@ -288,6 +333,15 @@ export async function createGymAdmin(req: Request, res: Response) {
 
     const { full_name, email, phone, password } = parsed.data;
     const passwordHash = await bcrypt.hash(password, 12);
+
+    const existing = await query<any[]>(
+      "SELECT id FROM users WHERE gym_id = ? AND (email = ? OR phone = ?) AND status != 'DELETED'",
+      [gymId, email, phone]
+    );
+    if (existing.length > 0) {
+      error(res, "Un admin existe deja avec cet email ou telephone dans cette salle", 409);
+      return;
+    }
 
     const result = await query<any>(
       `INSERT INTO users (gym_id, full_name, email, phone, password_hash, role, status, is_platform_admin, member_code)
@@ -357,14 +411,14 @@ export async function getPlatformLogs(req: Request, res: Response) {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
     const offset = (page - 1) * limit;
 
-    const [cnt] = await query<any[]>("SELECT COUNT(*) as total FROM activity_logs");
+    const [cnt] = await query<any[]>("SELECT COUNT(*) as total FROM platform_logs");
 
     const logs = await query<any[]>(
-      `SELECT al.*, u.full_name as admin_name, g.name as gym_name
-       FROM activity_logs al
-       LEFT JOIN users u ON u.id = al.admin_id
-       LEFT JOIN gyms g ON g.id = al.gym_id
-       ORDER BY al.created_at DESC
+      `SELECT pl.*, u.full_name as admin_name, g.name as gym_name
+       FROM platform_logs pl
+       LEFT JOIN users u ON u.id = pl.admin_id
+       LEFT JOIN gyms g ON g.id = CASE WHEN pl.target_type = 'GYM' THEN pl.target_id ELSE NULL END
+       ORDER BY pl.created_at DESC
        LIMIT ${Number(limit)} OFFSET ${Number(offset)}`
     );
 
@@ -375,40 +429,81 @@ export async function getPlatformLogs(req: Request, res: Response) {
   }
 }
 
-// ── POST /api/platform/switch-gym — Changer contexte salle ───
+// ── POST /api/platform/switch-gym — Entrer dans une salle ────
 
 export async function switchGym(req: Request, res: Response) {
   try {
-    const gymId = Number(req.body.gym_id);
-    let gymName: string | null = null;
-
     if (!req.user?.isPlatformAdmin) {
       error(res, "Reserve aux admins plateforme", 403);
       return;
     }
 
-    if (gymId) {
-      const gyms = await query<any[]>("SELECT id, name, status FROM gyms WHERE id = ?", [gymId]);
-      if (gyms.length === 0) {
-        error(res, "Salle introuvable", 404);
-        return;
-      }
-      gymName = gyms[0].name;
+    const { gym_slug, gym_id } = req.body;
+
+    let gym: any = null;
+    if (gym_slug) {
+      const gyms = await query<any[]>("SELECT id, name, slug, status FROM gyms WHERE slug = ?", [gym_slug]);
+      gym = gyms[0] || null;
+    } else if (gym_id) {
+      const gyms = await query<any[]>("SELECT id, name, slug, status FROM gyms WHERE id = ?", [Number(gym_id)]);
+      gym = gyms[0] || null;
     }
 
-    // Generate new token with updated gymId
+    if (!gym) {
+      error(res, "Salle introuvable", 404);
+      return;
+    }
+
+    if (gym.status === "SUSPENDED") {
+      error(res, "Cette salle est suspendue", 403);
+      return;
+    }
+
     const token = generateToken({
       userId: req.user.userId,
       role: req.user.role,
       email: req.user.email,
-      gymId: gymId || null,
+      gymId: null,
       isPlatformAdmin: true,
+      activeGymId: gym.id,
+      activeGymSlug: gym.slug,
     });
 
-    success(res, { token, gym_id: gymId || null, gym_name: gymName });
+    await logPlatformAction(req, "SWITCH_GYM", "GYM", gym.id, { slug: gym.slug });
+
+    success(res, {
+      token,
+      gym: { id: gym.id, name: gym.name, slug: gym.slug },
+    });
   } catch (err) {
     console.error("[PLATFORM] switchGym error:", err);
     error(res, "Erreur lors du changement de salle", 500);
+  }
+}
+
+// ── POST /api/platform/leave-gym — Retour a la plateforme ────
+
+export async function leaveGym(req: Request, res: Response) {
+  try {
+    if (!req.user?.isPlatformAdmin) {
+      error(res, "Reserve aux admins plateforme", 403);
+      return;
+    }
+
+    const token = generateToken({
+      userId: req.user.userId,
+      role: req.user.role,
+      email: req.user.email,
+      gymId: null,
+      isPlatformAdmin: true,
+      activeGymId: null,
+      activeGymSlug: null,
+    });
+
+    success(res, { token });
+  } catch (err) {
+    console.error("[PLATFORM] leaveGym error:", err);
+    error(res, "Erreur lors du retour plateforme", 500);
   }
 }
 
@@ -422,6 +517,15 @@ export async function createPlatformAdmin(req: Request, res: Response) {
 
     const { full_name, email, phone, password } = parsed.data;
     const passwordHash = await bcrypt.hash(password, 12);
+
+    const existing = await query<any[]>(
+      "SELECT id FROM users WHERE is_platform_admin = TRUE AND (email = ? OR phone = ?) AND status != 'DELETED'",
+      [email, phone]
+    );
+    if (existing.length > 0) {
+      error(res, "Un super admin existe deja avec cet email ou telephone", 409);
+      return;
+    }
 
     const result = await query<any>(
       `INSERT INTO users (gym_id, full_name, email, phone, password_hash, role, status, is_platform_admin, member_code)

@@ -44,6 +44,16 @@ async function columnExists(connection: any, tableName: string, columnName: stri
   return (rows as any[]).length > 0;
 }
 
+async function indexExists(connection: any, tableName: string, indexName: string) {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+     LIMIT 1`,
+    [env.db.name, tableName, indexName]
+  );
+  return (rows as any[]).length > 0;
+}
+
 async function executeStatement(connection: any, statement: string) {
   const trimmed = statement
     .split(/\r?\n/)
@@ -53,6 +63,25 @@ async function executeStatement(connection: any, statement: string) {
   if (!trimmed) return;
 
   const alterMatch = trimmed.match(/^ALTER\s+TABLE\s+`?([a-zA-Z0-9_]+)`?\s+(.+)$/is);
+
+  if (alterMatch && /DROP\s+INDEX\s+IF\s+EXISTS/i.test(alterMatch[2])) {
+    const tableName = alterMatch[1];
+    const clauses = splitSqlClauses(alterMatch[2]);
+
+    for (const clause of clauses) {
+      const dropMatch = clause.match(/^DROP\s+INDEX\s+IF\s+EXISTS\s+`?([a-zA-Z0-9_]+)`?$/is);
+      if (!dropMatch) {
+        await connection.query(`ALTER TABLE \`${tableName}\` ${clause}`);
+        continue;
+      }
+
+      const indexName = dropMatch[1];
+      if (!(await indexExists(connection, tableName, indexName))) continue;
+
+      await connection.query(`ALTER TABLE \`${tableName}\` DROP INDEX \`${indexName}\``);
+    }
+    return;
+  }
 
   if (alterMatch && /ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/i.test(alterMatch[2])) {
     const tableName = alterMatch[1];
@@ -70,6 +99,18 @@ async function executeStatement(connection: any, statement: string) {
 
       await connection.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${addMatch[2]}`);
     }
+    return;
+  }
+
+  const createIndexMatch = trimmed.match(/^CREATE\s+(UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+`?([a-zA-Z0-9_]+)`?\s+ON\s+`?([a-zA-Z0-9_]+)`?\s*(\(.+\))$/is);
+  if (createIndexMatch) {
+    const unique = createIndexMatch[1] || "";
+    const indexName = createIndexMatch[2];
+    const tableName = createIndexMatch[3];
+    const definition = createIndexMatch[4];
+    if (await indexExists(connection, tableName, indexName)) return;
+
+    await connection.query(`CREATE ${unique}INDEX \`${indexName}\` ON \`${tableName}\` ${definition}`);
     return;
   }
 

@@ -12,8 +12,12 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   gym_id?: number | null;
+  gym_slug?: string | null;
   gym_name?: string | null;
   is_platform_admin?: boolean;
+  active_gym_id?: number | null;
+  active_gym_slug?: string | null;
+  active_gym_name?: string | null;
   member_code: string;
   sport_goal?: string;
   created_at: string;
@@ -37,7 +41,7 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (identifier: string, password: string, gym_slug?: string) => Promise<{ success: boolean; error?: string }>;
   register: (data: {
     full_name: string;
     email?: string;
@@ -45,6 +49,7 @@ interface AuthContextType extends AuthState {
     password: string;
     sport_goal?: string;
     plan_id?: number;
+    gym_slug?: string;
   }) => Promise<{ success: boolean; member_code?: string; error?: string }>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -53,6 +58,8 @@ interface AuthContextType extends AuthState {
   isCoach: boolean;
   isMember: boolean;
   isAuthenticated: boolean;
+  currentGymSlug: string | null;
+  hasGymContext: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -70,6 +77,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isPlatformAdmin = !!state.user?.is_platform_admin;
   const isCoach = state.user?.role === "COACH";
   const isMember = state.user?.role === "MEMBER";
+
+  // Slug of the currently active gym (for URL building)
+  const currentGymSlug = state.user?.is_platform_admin
+    ? (state.user.active_gym_slug || null)
+    : (state.user?.gym_slug || null);
+
+  // Whether the user currently has a gym context to work with
+  const hasGymContext = state.user?.is_platform_admin
+    ? !!state.user.active_gym_id
+    : !!state.user?.gym_id;
 
   // Charger le profil au demarrage si token present
   const loadUser = useCallback(async () => {
@@ -98,9 +115,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, [loadUser]);
 
-  const login = async (identifier: string, password: string) => {
+  const login = async (identifier: string, password: string, gym_slug?: string) => {
     try {
-      const { data } = await authApi.login(identifier, password);
+      const { data } = await authApi.login(identifier, password, gym_slug);
       const { token, user, subscription } = data.data;
 
       localStorage.setItem("token", token);
@@ -153,6 +170,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isCoach,
       isMember,
       isAuthenticated,
+      currentGymSlug,
+      hasGymContext,
     }}>
       {children}
     </AuthContext.Provider>

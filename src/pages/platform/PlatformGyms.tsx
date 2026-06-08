@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Building2, CheckCircle2, PauseCircle, Plus, ShieldCheck, Eye } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Building2, CheckCircle2, PauseCircle, Plus, ShieldCheck, Eye, ArrowRight } from "lucide-react";
 import { platformApi } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 
 type GymStatus = "PENDING" | "ACTIVE" | "SUSPENDED";
 
@@ -33,11 +34,13 @@ const statusFilter: { label: string; value: string }[] = [
 ];
 
 export function PlatformGyms() {
+  const { refreshUser } = useAuth();
+  const navigate = useNavigate();
   const [gyms, setGyms] = useState<Gym[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [saving, setSaving] = useState(false);
-  const [lastAdminLogin, setLastAdminLogin] = useState<{ gym: string; email: string; password: string } | null>(null);
+  const [lastCreated, setLastCreated] = useState<{ gym: any; owner_admin: any; next_actions: any } | null>(null);
   const [form, setForm] = useState({
     name: "", owner_name: "", owner_email: "", owner_phone: "", owner_password: "", city: "", country: "",
   });
@@ -59,21 +62,20 @@ export function PlatformGyms() {
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      const created = await platformApi.createGym({ ...form, status: "PENDING" });
-      if (form.owner_email && form.owner_password) {
-        setLastAdminLogin({
-          gym: created.data.data?.name || form.name,
-          email: form.owner_email,
-          password: form.owner_password,
-        });
-      } else {
-        setLastAdminLogin(null);
-      }
+      const { data } = await platformApi.createGym({ ...form, status: "ACTIVE" });
+      setLastCreated(data.data || null);
       setForm({ name: "", owner_name: "", owner_email: "", owner_phone: "", owner_password: "", city: "", country: "" });
       await load();
     } finally {
       setSaving(false);
     }
+  }
+
+  async function enterGym(slug: string) {
+    const { data } = await platformApi.switchGym(slug);
+    localStorage.setItem("token", data.data.token);
+    await refreshUser();
+    navigate(`/g/${slug}/admin`);
   }
 
   async function updateStatus(id: number, status: GymStatus) {
@@ -105,12 +107,21 @@ export function PlatformGyms() {
         <button disabled={saving} className="px-4 py-2 rounded-lg bg-amber-400 text-zinc-950 font-bold disabled:opacity-60">
           {saving ? "Creation..." : "Creer la salle"}
         </button>
-        {lastAdminLogin && (
-          <div className="bg-zinc-950 border border-amber-400/30 rounded-lg p-4 text-sm">
-            <div className="font-bold text-amber-300">Connexion admin creee pour {lastAdminLogin.gym}</div>
-            <div className="text-zinc-400 mt-1">
-              L'admin se connecte sur <span className="text-zinc-100 font-mono">/admin/login</span> avec
-              <span className="text-zinc-100 font-mono"> {lastAdminLogin.email}</span> et le mot de passe defini.
+        {lastCreated && (
+          <div className="bg-zinc-950 border border-amber-400/30 rounded-lg p-4 text-sm space-y-3">
+            <div className="font-bold text-amber-300">Salle creee avec succes : {lastCreated.gym?.name}</div>
+            {lastCreated.owner_admin && (
+              <div className="text-zinc-400">
+                Admin : <span className="text-zinc-100 font-mono">{lastCreated.owner_admin.email}</span>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Link to={lastCreated.next_actions?.detail_url || "#"} className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-sm font-bold hover:bg-zinc-700 transition">
+                Voir les details
+              </Link>
+              <button onClick={() => enterGym(lastCreated.gym?.slug)} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-400 text-zinc-950 text-sm font-bold">
+                <ArrowRight size={14} /> Entrer dans cette salle
+              </button>
             </div>
           </div>
         )}
@@ -152,9 +163,14 @@ export function PlatformGyms() {
                     {statusLabels[gym.status]}
                   </span>
                   <span className="text-xs text-zinc-500">{gym.users_count} utilisateurs · {gym.admins_count} admins</span>
-                  <Link to={`/plateforme/salles/${gym.id}`} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-sm font-bold hover:bg-zinc-700 transition">
+                  <Link to={`/plateforme/salles/${gym.slug}`} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-zinc-800 text-zinc-200 text-sm font-bold hover:bg-zinc-700 transition">
                     <Eye size={15} /> Detail
                   </Link>
+                  {gym.status === "ACTIVE" && (
+                    <button onClick={() => enterGym(gym.slug)} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-400 text-zinc-950 text-sm font-bold">
+                      <ArrowRight size={15} /> Entrer
+                    </button>
+                  )}
                   {gym.status !== "ACTIVE" && (
                     <button onClick={() => updateStatus(gym.id, "ACTIVE")} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-emerald-500 text-white text-sm font-bold">
                       <CheckCircle2 size={15} /> Valider

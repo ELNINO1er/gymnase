@@ -116,6 +116,17 @@ export async function createPayment(req: Request, res: Response) {
       return;
     }
 
+    if (subscription_id) {
+      const [subscription] = await query<any[]>(
+        "SELECT id FROM subscriptions WHERE id = ? AND user_id = ? AND gym_id = ?",
+        [subscription_id, user_id, gymId]
+      );
+      if (!subscription) {
+        error(res, "Abonnement introuvable pour cette salle", 404);
+        return;
+      }
+    }
+
     const result = await query<any>(
       `INSERT INTO payments (gym_id, user_id, subscription_id, amount, payment_method, status, transaction_reference)
        VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`,
@@ -176,21 +187,21 @@ export async function validatePayment(req: Request, res: Response) {
     // Si lie a un abonnement, activer l'abonnement
     if (payment.subscription_id) {
       await query<any>(
-        "UPDATE subscriptions SET status = 'ACTIVE' WHERE id = ? AND status = 'PENDING'",
-        [payment.subscription_id]
+        "UPDATE subscriptions SET status = 'ACTIVE' WHERE id = ? AND gym_id = ? AND status = 'PENDING'",
+        [payment.subscription_id, gymId]
       );
       // Activer le membre
       await query<any>(
-        "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND status IN ('PENDING', 'EXPIRED')",
-        [payment.user_id]
+        "UPDATE users SET status = 'ACTIVE', role = 'MEMBER' WHERE id = ? AND gym_id = ? AND status IN ('PENDING', 'EXPIRED')",
+        [payment.user_id, gymId]
       );
     }
 
     // Notification au membre
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Paiement confirme', ?, 'PAYMENT')`,
-      [payment.user_id, `Votre paiement de ${Number(payment.amount).toLocaleString()} FCFA a ete confirme.`]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Paiement confirme', ?, 'PAYMENT')`,
+      [gymId, payment.user_id, `Votre paiement de ${Number(payment.amount).toLocaleString()} FCFA a ete confirme.`]
     );
 
     await logActivity(req, { action: "PAY", targetType: "PAYMENT", targetId: Number(id), description: `Paiement #${id} valide : ${payment.amount} FCFA pour ${payment.full_name}`, metadata: { amount: payment.amount, user_id: payment.user_id } });
@@ -232,9 +243,9 @@ export async function cancelPayment(req: Request, res: Response) {
     await query<any>("UPDATE payments SET status = 'CANCELLED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Paiement annule', 'Un de vos paiements a ete annule.', 'PAYMENT')`,
-      [payment.user_id]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Paiement annule', 'Un de vos paiements a ete annule.', 'PAYMENT')`,
+      [gymId, payment.user_id]
     );
 
     await logActivity(req, { action: "CANCEL", targetType: "PAYMENT", targetId: Number(id), description: `Paiement #${id} annule pour ${payment.full_name}` });
@@ -272,9 +283,9 @@ export async function refundPayment(req: Request, res: Response) {
     await query<any>("UPDATE payments SET status = 'REFUNDED' WHERE id = ? AND gym_id = ?", [id, gymId]);
 
     await query<any>(
-      `INSERT INTO notifications (user_id, title, message, type)
-       VALUES (?, 'Remboursement', ?, 'PAYMENT')`,
-      [payment.user_id, `Votre paiement de ${Number(payment.amount).toLocaleString()} FCFA a ete rembourse.`]
+      `INSERT INTO notifications (gym_id, user_id, title, message, type)
+       VALUES (?, ?, 'Remboursement', ?, 'PAYMENT')`,
+      [gymId, payment.user_id, `Votre paiement de ${Number(payment.amount).toLocaleString()} FCFA a ete rembourse.`]
     );
 
     await logActivity(req, { action: "REFUND", targetType: "PAYMENT", targetId: Number(id), description: `Paiement #${id} rembourse : ${payment.amount} FCFA pour ${payment.full_name}` });

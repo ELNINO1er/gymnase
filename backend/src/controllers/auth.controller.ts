@@ -15,11 +15,13 @@ const registerSchema = z.object({
   sport_goal: z.string().max(255).optional().nullable(),
   plan_id: z.number().int().positive().optional().nullable(),
   gym_id: z.number().int().positive().optional().nullable(),
+  gym_slug: z.string().max(80).optional().nullable(),
 });
 
 const loginSchema = z.object({
   identifier: z.string().min(1, "Email, telephone ou code membre requis"),
   password: z.string().min(1, "Mot de passe requis"),
+  gym_slug: z.string().max(80).optional().nullable(),
 });
 
 const changePasswordSchema = z.object({
@@ -50,9 +52,20 @@ export async function register(req: Request, res: Response) {
       return;
     }
 
-    const { full_name, email, phone, password, sport_goal, plan_id } = parsed.data;
+    const { full_name, email, phone, password, sport_goal, plan_id, gym_slug } = parsed.data;
 
     let gymId = parsed.data.gym_id || null;
+
+    // Resolve gym from slug if provided
+    if (!gymId && gym_slug) {
+      const gyms = await query<any[]>("SELECT id FROM gyms WHERE slug = ? AND status = 'ACTIVE'", [gym_slug]);
+      if (gyms.length === 0) {
+        error(res, "Salle introuvable", 404);
+        return;
+      }
+      gymId = gyms[0].id;
+    }
+
     if (!gymId && plan_id) {
       const plans = await query<any[]>("SELECT gym_id FROM membership_plans WHERE id = ? AND is_active = TRUE", [plan_id]);
       gymId = plans[0]?.gym_id || null;
@@ -87,7 +100,7 @@ export async function register(req: Request, res: Response) {
 
     // Si un plan est choisi, creer la souscription + paiement en attente
     if (plan_id) {
-      const plans = await query<any[]>("SELECT * FROM membership_plans WHERE id = ? AND is_active = TRUE", [plan_id]);
+      const plans = await query<any[]>("SELECT * FROM membership_plans WHERE id = ? AND gym_id = ? AND is_active = TRUE", [plan_id, gymId]);
 
       if (plans.length > 0) {
         const plan = plans[0];
@@ -141,19 +154,42 @@ export async function login(req: Request, res: Response) {
       return;
     }
 
-    const { identifier, password } = parsed.data;
+    const { identifier, password, gym_slug } = parsed.data;
 
-    const users = await query<any[]>(
-      "SELECT * FROM users WHERE (email = ? OR phone = ? OR member_code = ?) AND status != 'DELETED'",
-      [identifier, identifier, identifier]
-    );
+    // If gym_slug provided, resolve gym_id to scope user lookup
+    let scopeGymId: number | null = null;
+    if (gym_slug) {
+      const gyms = await query<any[]>("SELECT id FROM gyms WHERE slug = ? AND status = 'ACTIVE'", [gym_slug]);
+      if (gyms.length === 0) {
+        error(res, "Salle introuvable", 404);
+        return;
+      }
+      scopeGymId = gyms[0].id;
+    }
+
+    const userQuery = scopeGymId
+      ? "SELECT * FROM users WHERE (email = ? OR phone = ? OR member_code = ?) AND gym_id = ? AND status != 'DELETED'"
+      : "SELECT * FROM users WHERE (email = ? OR phone = ? OR member_code = ?) AND status != 'DELETED'";
+    const userParams = scopeGymId
+      ? [identifier, identifier, identifier, scopeGymId]
+      : [identifier, identifier, identifier];
+
+    const users = await query<any[]>(userQuery, userParams);
 
     if (users.length === 0) {
       error(res, "Identifiants incorrects", 401);
       return;
     }
 
-    const user = users[0];
+    let user = users[0];
+    if (!scopeGymId && users.length > 1) {
+      const platformMatches = users.filter((u) => Boolean(u.is_platform_admin));
+      if (platformMatches.length !== 1) {
+        error(res, "Selectionnez votre salle avant de vous connecter", 409);
+        return;
+      }
+      user = platformMatches[0];
+    }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
@@ -183,10 +219,12 @@ export async function login(req: Request, res: Response) {
       userId: user.id,
       role: user.role,
       email: user.email,
-      gymId: gymId ?? null,
+      gymId: user.is_platform_admin ? null : (gymId ?? null),
       isPlatformAdmin: Boolean(user.is_platform_admin),
+      activeGymId: null,
+      activeGymSlug: null,
     });
-    const gymName = await getGymName(gymId);
+    const gymName = await getGymName(user.is_platform_admin ? null : gymId);
 
     // Charger abonnement actif si membre
     let activeSubscription = null;
@@ -195,11 +233,18 @@ export async function login(req: Request, res: Response) {
         `SELECT s.*, mp.name as plan_name, mp.price as plan_price
          FROM subscriptions s
          JOIN membership_plans mp ON mp.id = s.plan_id
-         WHERE s.user_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
+         WHERE s.user_id = ? AND s.gym_id = ? AND s.status = 'ACTIVE' AND s.end_date >= CURDATE()
          ORDER BY s.end_date DESC LIMIT 1`,
-        [user.id]
+        [user.id, gymId || 0]
       );
       activeSubscription = subs[0] || null;
+    }
+
+    // Resolve gym slug for admin redirect
+    let gymSlug: string | null = null;
+    if (gymId) {
+      const slugRows = await query<any[]>("SELECT slug FROM gyms WHERE id = ?", [gymId]);
+      gymSlug = slugRows[0]?.slug || null;
     }
 
     success(res, {
@@ -212,8 +257,11 @@ export async function login(req: Request, res: Response) {
         role: user.role,
         status: user.status,
         gym_id: gymId,
+        gym_slug: gymSlug,
         gym_name: gymName,
         is_platform_admin: Boolean(user.is_platform_admin),
+        active_gym_id: null,
+        active_gym_slug: null,
         member_code: user.member_code,
         sport_goal: user.sport_goal,
         created_at: user.created_at,
@@ -247,7 +295,11 @@ export async function me(req: Request, res: Response) {
     }
 
     const user = users[0];
-    const effectiveGymId = user.is_platform_admin ? (req.user.gymId ?? user.gym_id ?? null) : user.gym_id;
+
+    // For platform admins, use activeGymId from token; for regular users, use their gym_id
+    const activeGymId = user.is_platform_admin ? (req.user.activeGymId || null) : null;
+    const activeGymSlug = user.is_platform_admin ? (req.user.activeGymSlug || null) : null;
+    const effectiveGymId = user.is_platform_admin ? (activeGymId || null) : user.gym_id;
     const gymName = await getGymName(effectiveGymId);
 
     // Abonnement actif
@@ -276,10 +328,21 @@ export async function me(req: Request, res: Response) {
       [user.id]
     );
 
+    // Resolve gym_slug for the user's permanent gym
+    let gymSlug: string | null = null;
+    if (user.gym_id) {
+      const slugRows = await query<any[]>("SELECT slug FROM gyms WHERE id = ?", [user.gym_id]);
+      gymSlug = slugRows[0]?.slug || null;
+    }
+
     success(res, {
       ...user,
-      gym_id: effectiveGymId,
+      gym_id: user.gym_id || null,
+      gym_slug: gymSlug,
       gym_name: gymName,
+      active_gym_id: activeGymId,
+      active_gym_slug: activeGymSlug,
+      active_gym_name: activeGymId ? gymName : null,
       subscription: subs[0] || null,
       stats: {
         total_reservations: resvStats?.total || 0,
@@ -367,7 +430,17 @@ export async function updateProfile(req: Request, res: Response) {
       return;
     }
 
-    // Verifier doublons email/phone
+    const currentUsers = await query<any[]>(
+      "SELECT gym_id, is_platform_admin FROM users WHERE id = ? AND status != 'DELETED'",
+      [req.user.userId]
+    );
+    if (currentUsers.length === 0) {
+      error(res, "Utilisateur introuvable", 404);
+      return;
+    }
+    const currentUser = currentUsers[0];
+
+    // Verifier doublons email/phone dans le bon perimetre tenant.
     if (data.email || data.phone) {
       const conditions: string[] = [];
       const dupValues: any[] = [];
@@ -375,9 +448,12 @@ export async function updateProfile(req: Request, res: Response) {
       if (data.email) { conditions.push("email = ?"); dupValues.push(data.email); }
       if (data.phone) { conditions.push("phone = ?"); dupValues.push(data.phone); }
 
+      const tenantScope = currentUser.is_platform_admin ? "is_platform_admin = TRUE" : "gym_id = ?";
+      const tenantParams = currentUser.is_platform_admin ? [] : [currentUser.gym_id];
+
       const existing = await query<any[]>(
-        `SELECT id FROM users WHERE (${conditions.join(" OR ")}) AND id != ?`,
-        [...dupValues, req.user.userId]
+        `SELECT id FROM users WHERE ${tenantScope} AND (${conditions.join(" OR ")}) AND id != ?`,
+        [...tenantParams, ...dupValues, req.user.userId]
       );
 
       if (existing.length > 0) {
@@ -429,13 +505,14 @@ export async function refreshToken(req: Request, res: Response) {
       return;
     }
 
-    const effectiveGymId = user.is_platform_admin ? (req.user.gymId ?? null) : (user.gym_id ?? null);
     const token = generateToken({
       userId: user.id,
       role: user.role,
       email: user.email,
-      gymId: effectiveGymId,
+      gymId: user.is_platform_admin ? null : (user.gym_id ?? null),
       isPlatformAdmin: Boolean(user.is_platform_admin),
+      activeGymId: user.is_platform_admin ? (req.user.activeGymId || null) : null,
+      activeGymSlug: user.is_platform_admin ? (req.user.activeGymSlug || null) : null,
     });
 
     success(res, { token });

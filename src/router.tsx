@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { ProtectedRoute } from "./components/guards/ProtectedRoute";
+import { AdminRedirect } from "./components/guards/AdminRedirect";
 
 // Layouts
 import { PublicLayout } from "./layouts/PublicLayout";
@@ -64,15 +65,25 @@ import { CoachMembers } from "./pages/coach/CoachMembers";
 import { CoachPrograms } from "./pages/coach/CoachPrograms";
 
 export const router = createBrowserRouter([
-  // ── Routes publiques ─────────────────────────────────────
+  // ── Routes publiques (globales) ──────────────────────────
   {
     element: <PublicLayout />,
     children: [
       { path: "/", element: <HomePage /> },
       { path: "/plans", element: <PlansPage /> },
       { path: "/login", element: <LoginPage /> },
-      { path: "/admin/login", element: <LoginPage adminOnly /> },
       { path: "/register", element: <RegisterPage /> },
+      { path: "/admin/login", element: <LoginPage adminOnly /> },
+    ],
+  },
+
+  // ── Routes publiques (par salle) ───────────────────────
+  {
+    element: <PublicLayout />,
+    children: [
+      { path: "/g/:slug/login", element: <LoginPage /> },
+      { path: "/g/:slug/register", element: <RegisterPage /> },
+      { path: "/g/:slug/admin/login", element: <LoginPage adminOnly /> },
     ],
   },
 
@@ -114,7 +125,7 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Routes admin ─────────────────────────────────────────
+  // ── Routes admin (avec slug de la salle) ─────────────────
   {
     element: (
       <ProtectedRoute roles={["ADMIN", "SUPER_ADMIN"]} loginPath="/admin/login" requireGym>
@@ -122,26 +133,29 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-      { path: "/admin", element: <AdminDashboard /> },
-      { path: "/admin/membres", element: <AdminMembers /> },
-      { path: "/admin/membres/:id/crm", element: <AdminCRM /> },
-      { path: "/admin/reservations", element: <AdminReservations /> },
-      { path: "/admin/paiements", element: <AdminPayments /> },
-      { path: "/admin/plans", element: <AdminPlans /> },
-      { path: "/admin/presences", element: <AdminPresences /> },
-      { path: "/admin/promos", element: <AdminPromos /> },
-      { path: "/admin/programmes", element: <AdminWorkouts /> },
-      { path: "/admin/boutique", element: <AdminBoutique /> },
-      { path: "/admin/messagerie", element: <AdminMessages /> },
-      { path: "/admin/exports", element: <AdminExports /> },
-      { path: "/admin/analytics", element: <AdminAnalytics /> },
-      { path: "/admin/branches", element: <AdminBranches /> },
-      { path: "/admin/logs", element: <AdminLogs /> },
-      { path: "/admin/settings", element: <AdminSettings /> },
-      { path: "/admin/notifications", element: <AdminNotifications /> },
-      { path: "/admin/risques", element: <AdminRiskScores /> },
-      { path: "/admin/abonnements", element: <AdminSubscriptions /> },
-      { path: "/admin/factures", element: <AdminInvoices /> },
+      { path: "/g/:slug/admin", element: <AdminDashboard /> },
+      { path: "/g/:slug/admin/membres", element: <AdminMembers /> },
+      { path: "/g/:slug/admin/membres/:id/crm", element: <AdminCRM /> },
+      { path: "/g/:slug/admin/reservations", element: <AdminReservations /> },
+      { path: "/g/:slug/admin/paiements", element: <AdminPayments /> },
+      { path: "/g/:slug/admin/plans", element: <AdminPlans /> },
+      { path: "/g/:slug/admin/presences", element: <AdminPresences /> },
+      { path: "/g/:slug/admin/promos", element: <AdminPromos /> },
+      { path: "/g/:slug/admin/programmes", element: <AdminWorkouts /> },
+      { path: "/g/:slug/admin/boutique", element: <AdminBoutique /> },
+      { path: "/g/:slug/admin/messagerie", element: <AdminMessages /> },
+      { path: "/g/:slug/admin/exports", element: <AdminExports /> },
+      { path: "/g/:slug/admin/analytics", element: <AdminAnalytics /> },
+      { path: "/g/:slug/admin/branches", element: <AdminBranches /> },
+      { path: "/g/:slug/admin/logs", element: <AdminLogs /> },
+      { path: "/g/:slug/admin/settings", element: <AdminSettings /> },
+      { path: "/g/:slug/admin/notifications", element: <AdminNotifications /> },
+      { path: "/g/:slug/admin/risques", element: <AdminRiskScores /> },
+      { path: "/g/:slug/admin/abonnements", element: <AdminSubscriptions /> },
+      { path: "/g/:slug/admin/factures", element: <AdminInvoices /> },
+      // Legacy redirect for old /admin routes
+      { path: "/admin", element: <AdminRedirect /> },
+      { path: "/admin/*", element: <AdminRedirect /> },
     ],
   },
 
@@ -155,7 +169,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "/plateforme", element: <PlatformDashboard /> },
       { path: "/plateforme/salles", element: <PlatformGyms /> },
-      { path: "/plateforme/salles/:id", element: <PlatformGymDetail /> },
+      { path: "/plateforme/salles/:slugOrId", element: <PlatformGymDetail /> },
       { path: "/plateforme/admins", element: <PlatformAdmins /> },
       { path: "/plateforme/logs", element: <PlatformLogs /> },
     ],

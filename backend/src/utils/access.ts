@@ -5,15 +5,34 @@ export function isAdminRole(role?: string) {
   return role === "ADMIN" || role === "SUPER_ADMIN";
 }
 
-export function getRequestGymId(req: Request) {
-  const gymId = req.user?.gymId;
+/**
+ * Returns the effective gym ID for the current request.
+ * - Platform admin: uses activeGymId (temporarily selected gym)
+ * - Regular admin/user: uses gymId (permanent assignment)
+ */
+export function getCurrentGymId(req: Request): number | null {
+  if (!req.user) return null;
+
+  if (req.user.isPlatformAdmin) {
+    const activeId = req.user.activeGymId;
+    return typeof activeId === "number" && Number.isInteger(activeId) && activeId > 0
+      ? activeId
+      : null;
+  }
+
+  const gymId = req.user.gymId;
   return typeof gymId === "number" && Number.isInteger(gymId) && gymId > 0 ? gymId : null;
 }
 
+// Alias for backward compatibility
+export function getRequestGymId(req: Request) {
+  return getCurrentGymId(req);
+}
+
 export function requireGymContext(req: Request, res: Response) {
-  const gymId = getRequestGymId(req);
+  const gymId = getCurrentGymId(req);
   if (!gymId) {
-    error(res, "Contexte salle requis", 403, ErrorCode.FORBIDDEN);
+    error(res, "Selectionnez une salle avant d'acceder a cet espace", 403, ErrorCode.FORBIDDEN);
     return null;
   }
   return gymId;
